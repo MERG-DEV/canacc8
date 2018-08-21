@@ -1,5 +1,5 @@
 ;     TITLE   "ACC8 source for combined SLiM / FLiM node for CBUS"
-; filename ACC8r.asm    Now incorporates Bootloader
+; filename ACC8_u.asm   Now incorporates Bootloader
 
 ;  SLiM / FLiM version  19/11/09
 ; this code is for 18F2480 
@@ -67,6 +67,11 @@
 ;Rev n. Mods to REQEV sequence. Now has new enum scheme.
 ;Rev p. Added clear of RXB overflow bots in COMSTAT
 ;Rev r  (no rev q)  Removed request events form supported list. (10/02/11)
+;Rev s  07/03/11 Boot command now only works with NN of zero
+;   Read parameters by index works in SLiM mode with NN of zero
+;Rev t  clear NN_temph and NN_templ to zero in slimset
+;Rev u  clear shadow copy of events in ram on 0x55 (NNCLR)
+;   send WRACK after NNCLR and EVLRN
 
 ;end of comments for ACC8
 
@@ -175,7 +180,7 @@ Modstat equ 1   ;address in EEPROM
 ;module parameters  change as required
 
 Para1 equ .165  ;manufacturer number
-Para2 equ  "R"  ;for now
+Para2 equ  "U"  ;for now
 Para3 equ ACC8_ID
 Para4 equ   EN_NUM    ;node descriptors (temp values)
 Para5 equ   EV_NUM
@@ -361,7 +366,7 @@ Para7 equ 0
   EVtemp1 
   EVtemp2   ;holds current EV qualifier
   EVtemp3 
-
+  LogFlag   ;added to byte 6 of log reply
   
   Tx1con      ;start of transmit frame  1
   Tx1sidh
@@ -1383,6 +1388,11 @@ params  btfss Datmode,2   ;only in setup mode
     call  parasend
     bra   main2
     
+short clrf  Rx0d1
+    clrf  Rx0d2
+    bra   go_on 
+    
+    
 ;********************************************************************
                 ;main packet handling is here
                 ;add more commands for incoming frames as needed
@@ -1396,14 +1406,17 @@ packet  movlw CMD_ON  ;only ON, OFF  events supported
     
     movlw SCMD_ON
     subwf Rx0d0,W
-    bz  short
+    bz    short
     movlw SCMD_OFF
     subwf Rx0d0,W
-    bz  short
+    bz    short
     
     movlw 0x5C      ;reboot
     subwf Rx0d0,W
     bz    reboot
+    movlw 0x73
+    subwf Rx0d0,W
+    bz    para1a      ;read individual parameters
     btfss Mode,1      ;FLiM?
     bra   main2
     movlw 0x42      ;set NN on 0x42
@@ -1441,9 +1454,6 @@ packet  movlw CMD_ON  ;only ON, OFF  events supported
     movlw 0x72
     subwf Rx0d0,W
     bz    readENi     ;read event by index
-    movlw 0x73
-    subwf Rx0d0,W
-    bz    para1a      ;read individual parameters
     movlw 0x58
     subwf Rx0d0,W
     bz    evns
@@ -1459,15 +1469,37 @@ evns  goto  evns1
     bra   main2
 
 reboot  btfss Mode,1      ;FLiM?
-    bra   reboot1
+    bra   reboots
     call  thisNN
     sublw 0
     bnz   notNN
+    
 reboot1 movlw 0xFF
     movwf EEADR
     movlw 0xFF
     call  eewrite     ;set last EEPROM byte to 0xFF
     reset         ;software reset to bootloader
+
+reboots
+    movf  Rx0d1,w
+    addwf Rx0d2,w
+    bnz   notNN
+    bra   reboot1 
+  
+para1a  btfss Mode, 1
+    bra   para1s
+    call  thisNN      ;read parameter by index
+    sublw 0
+    bnz   notNN
+    call  para1rd
+    bra   main2
+    
+para1s
+    movf  Rx0d1,w
+    addwf Rx0d2,w
+    bnz   notNN
+    call  para1rd
+    bra   main2
       
 main2 bcf   Datmode,0
     goto  main      ;loop
@@ -1519,6 +1551,8 @@ clrens  call  thisNN
     btfss Datmode,4
     bra   clrerr
     call  enclear
+    movlw 0x59
+    call  nnrel   ;send WRACK
     bra   notln1
 notNN bra   main2
 clrerr  movlw 2     ;not in learn mode
@@ -1529,10 +1563,7 @@ chklrn  btfsc Datmode,4
     bra   learn1      ;is in learn mode
     bra   main2
 
-short clrf  Rx0d1
-    clrf  Rx0d2
-    bra   go_on 
-    
+
 go_on btfss Mode,1      ;FLiM?
     bra   go_on_s
 ;   btfsc Datmode,4
@@ -1559,11 +1590,6 @@ readENi call  thisNN      ;read event by index
 paraerr movlw 3       ;error not in setup mode
     goto  errmsg
 
-para1a  call  thisNN      ;read parameter by index
-    sublw 0
-    bnz   notNN
-    call  para1rd
-    bra   main2
 
 readEN  call  thisNN
     sublw 0
@@ -1608,6 +1634,7 @@ learn1  btfss Mode,1      ;FLiM?
 ;   bra   l_out2
 
 learn2  call  enmatch     ;is it there already?
+    movwf LogFlag     ;for logging
     sublw   0
     bz    isthere
     btfsc Mode,1      ;FLiM?
@@ -1697,8 +1724,10 @@ shft3 comf  EVtemp,W      ;clear the POL bit
 
 new_EVf movlw LOW ENindex+1   ;here if a new event in FLiM mode
     movwf EEADR
-    bsf   EECON1,RD
-    decf  EEDATA,W
+    call  eeread
+;   bsf   EECON1,RD
+;   decf  EEDATA,W
+    decf  WREG
     movwf ENcount       ;recover EN counter
 mod_EVf movff Rx0d5,EVtemp  ;store EV index
     movf  EVtemp,F    ;is it zero?
@@ -1722,6 +1751,10 @@ mod_EVf movff Rx0d5,EVtemp  ;store EV index
     bra   rdbak
     movf  EVtemp2,W
     call  eewrite       ;put in
+    movlw 0x59
+    call  nnrel       ;send WRACK
+;   movlw 0x52
+;   call  nnrel
     bra   l_out2
 
 
@@ -1942,6 +1975,8 @@ seten_f call  en_ram      ;put events in RAM
     goto  main
 
 slimset bcf   Mode,1
+    clrf  NN_temph
+    clrf  NN_templ
     ;test for clear all events
     btfss PORTA,LEARN   ;ignore the clear if learn is set
     goto  seten
@@ -2204,8 +2239,9 @@ lrnin1  btfsc Datmode,5 ;don't do if unlearn
     return
     movlw LOW ENindex+1
     movwf EEADR
-    bsf   EECON1,RD
-    movf  EEDATA,W
+    call  eeread
+;   bsf   EECON1,RD
+;   movf  EEDATA,W
     movwf ENcount   ;hold pointer
     movlw EN_NUM
     cpfslt  ENcount
@@ -2240,8 +2276,9 @@ lrnin1  btfsc Datmode,5 ;don't do if unlearn
     
     movlw LOW ENindex+1
     movwf EEADR
-    bsf   EECON1,RD
-    movf  EEDATA,W
+;   bsf   EECON1,RD
+;   movf  EEDATA,W
+    call  eeread
     addlw 1         ;increment for next
     movwf Temp
     call  eewrite       ;put back
@@ -2265,8 +2302,9 @@ notful  retlw 0
 enmatch lfsr  FSR0,EN1  ;EN ram image
     movlw LOW ENindex+1 ;
     movwf EEADR
-    bsf   EECON1,RD
-    movf  EEDATA,W
+;   bsf   EECON1,RD
+;   movf  EEDATA,W
+    call  eeread
     movwf Count
     movf  Count,F
   
@@ -2391,6 +2429,13 @@ enloop  movlw 0
     incf  EEADR
     decfsz  Count
     bra   enloop
+    ;now clear the ram
+    movlw EN_NUM * 4
+    movwf Count
+    lfsr  FSR0, EN1
+ramloop clrf  POSTINC0
+    decfsz  Count
+    bra   ramloop
     return  
 ;************************************************************
 
@@ -2610,6 +2655,21 @@ para1rd movlw 0x9B
     call  sendTX
     return  
 
+
+;sendlog
+;   movlw 0xF7
+;   movwf Tx1d0
+;   movff Rx0d5, Tx1d3
+;   movff Rx0d6, Tx1d4
+;   movff ENcount, Tx1d5
+;   movff LogFlag, Tx1d6
+;   clrf  Tx1d7
+;   movlw 8
+;   movwf Dlc
+;   call  sendTX
+;   call  ldely
+;   return
+    
 ;***********************************************************
 
 ; error message send
