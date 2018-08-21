@@ -1,5 +1,5 @@
 ;     TITLE   "ACC8 source for combined SLiM / FLiM node for CBUS"
-; filename ACC8p.asm    Now incorporates Bootloader
+; filename ACC8r.asm    Now incorporates Bootloader
 
 ;  SLiM / FLiM version  19/11/09
 ; this code is for 18F2480 
@@ -66,6 +66,7 @@
 ;prevent error messages in unlearn  Rev m  (17/03/10)  no rev l
 ;Rev n. Mods to REQEV sequence. Now has new enum scheme.
 ;Rev p. Added clear of RXB overflow bots in COMSTAT
+;Rev r  (no rev q)  Removed request events form supported list. (10/02/11)
 
 ;end of comments for ACC8
 
@@ -158,12 +159,12 @@ LED1  equ   7 ;PB7 is the green LED on the PCB
 LED2  equ   6 ;PB6 is the yellow LED on the PCB
 
 
-CMD_ON  equ 0x90  ;on event
+CMD_ON    equ 0x90  ;on event
 CMD_OFF equ 0x91  ;off event
-CMD_REQ equ 0x92
+
 SCMD_ON equ 0x98
 SCMD_OFF  equ 0x99
-SCMD_REQ  equ 0x9A
+
 EN_NUM  equ .32   ;number of allowed events
 EV_NUM  equ 2   ;number of allowed EVs per event
 NV_NUM  equ 8   ;number of allowed NVs for node (provisional)
@@ -174,10 +175,10 @@ Modstat equ 1   ;address in EEPROM
 ;module parameters  change as required
 
 Para1 equ .165  ;manufacturer number
-Para2 equ  "P"  ;for now
+Para2 equ  "R"  ;for now
 Para3 equ ACC8_ID
-Para4 equ EN_NUM    ;node descriptors (temp values)
-Para5 equ EV_NUM
+Para4 equ   EN_NUM    ;node descriptors (temp values)
+Para5 equ   EV_NUM
 Para6 equ 0
 Para7 equ 0
 
@@ -1386,24 +1387,20 @@ params  btfss Datmode,2   ;only in setup mode
                 ;main packet handling is here
                 ;add more commands for incoming frames as needed
     
-packet  movlw CMD_ON  ;only ON, OFF and REQ events supported
+packet  movlw CMD_ON  ;only ON, OFF  events supported
     subwf Rx0d0,W 
     bz    go_on_x
     movlw CMD_OFF
     subwf Rx0d0,W
     bz    go_on_x
-    movlw CMD_REQ
-    subwf Rx0d0,W
-    bz    go_on_x
+    
     movlw SCMD_ON
     subwf Rx0d0,W
     bz  short
     movlw SCMD_OFF
     subwf Rx0d0,W
     bz  short
-    movlw SCMD_REQ
-    subwf Rx0d0,W
-    bz  short
+    
     movlw 0x5C      ;reboot
     subwf Rx0d0,W
     bz    reboot
