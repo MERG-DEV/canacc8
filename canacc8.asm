@@ -1,5 +1,5 @@
 ;     TITLE   "ACC8 source for combined SLiM / FLiM node for CBUS"
-; filename ACC8_u.asm   Now incorporates Bootloader
+; filename ACC8_v.asm   Now incorporates Bootloader
 
 ;  SLiM / FLiM version  19/11/09
 ; this code is for 18F2480 
@@ -72,8 +72,12 @@
 ;Rev t  clear NN_temph and NN_templ to zero in slimset
 ;Rev u  clear shadow copy of events in ram on 0x55 (NNCLR)
 ;   send WRACK after NNCLR and EVLRN
+;Rev v  05/06/11 Add NVs to control pulse options
+;       and enhance ev_set to use NVs
 
 ;end of comments for ACC8
+
+
 
 ; This is the bootloader section
 
@@ -180,11 +184,11 @@ Modstat equ 1   ;address in EEPROM
 ;module parameters  change as required
 
 Para1 equ .165  ;manufacturer number
-Para2 equ  "U"  ;for now
+Para2 equ  "V"  ;for now
 Para3 equ ACC8_ID
 Para4 equ   EN_NUM    ;node descriptors (temp values)
 Para5 equ   EV_NUM
-Para6 equ 0
+Para6 equ   NV_NUM
 Para7 equ 0
 
 ; definitions used by bootloader
@@ -305,6 +309,7 @@ Para7 equ 0
   Fsr_temp1L
   Fsr_temp1H 
   Fsr_temp2L
+  Fsr_temp2H
   
   TempCANCON
   TempCANSTAT
@@ -330,14 +335,6 @@ Para7 equ 0
   Shift
   Dlc     ;data length
   NV_temp   ;8 bytes here for storage ov NVs  (if needed
-
-
-  
-  
-      
-        
-  
-
   
   Rx0con      ;start of receive packet from RXB0
   Rx0sidh
@@ -365,7 +362,7 @@ Para7 equ 0
   EVtemp    ;holds current EV pointer
   EVtemp1 
   EVtemp2   ;holds current EV qualifier
-  EVtemp3 
+  EVtemp3   ;holds copy of Rx0d0 during ev_set routine
   LogFlag   ;added to byte 6 of log reply
   
   Tx1con      ;start of transmit frame  1
@@ -382,6 +379,32 @@ Para7 equ 0
   Tx1d5
   Tx1d6
   Tx1d7
+  
+    ;***************************************************************
+  Timout    ;used in timer routines
+  Timbit    ;
+  Timset    ;
+  Timtemp
+  OpBits    ;data for loading into PORTC after receiving an event
+  OnBits    ;bits to turn on efter event
+  OffBits   ;bits to turn off after event
+  OpNum   ; output number 
+  T1      ;timer registers for each output
+  T2
+  T3
+  T4
+  T5
+  T6
+  T7
+  T8    
+  T1Copy      ;reload timer registers
+  T2Copy
+  T3Copy
+  T4Copy
+  T5Copy
+  T6Copy
+  T7Copy
+  T8Copy    
 
   Roll    ;rolling bit for enum
   
@@ -1181,17 +1204,119 @@ enum_3  movf  Roll,W
 ;**************************************************************
 ;
 ;
-;   low priority interrupt. (if used)
+;   low priority interrupt. Used by output timer overflow. Every 10 millisecs.
 ; 
 
-lpint retfie  
+lpint movwf W_tempL       ;used for output timers
+    movff STATUS,St_tempL
+    movff BSR,Bsr_tempL
+    movff FSR0H, Fsr_temp0H
+    movff FSR0L, Fsr_temp0L
+    movff FSR1H, Fsr_temp1H
+    movff FSR1L, Fsr_temp1L
+
+    movlw 0xE0        ;Timer 1 lo byte. (adjust if needed)
+    movwf TMR1L       ;reset timer 1
+    clrf  PIR1        ;clear all timer flag
+    
+lp1   clrf  Timout
+    clrf  Timbit        ;rolling bit for testing which timer
+    
+    movf  T1
+    bz    doT2
+    decfsz  T1,F
+    bra   doT2
+    bsf   Timout,0      ;set bits in Timout if it needs to go off
+    movff T1Copy, T1
+doT2    
+    movf  T2
+    bz    doT3
+    decfsz  T2,F
+    bra   doT3
+    bsf   Timout,1
+    movff T2Copy, T2
+doT3
+    movf  T3
+    bz    doT4
+    decfsz  T3,F
+    bra   doT4
+    bsf   Timout,2
+    movff T3Copy, T3
+    
+doT4
+    movf  T4
+    bz    doT5
+    decfsz  T4,F
+    bra   doT5
+    bsf   Timout,3
+    movff T4Copy, T4
+doT5    
+    movf  T5
+    bz    doT6
+    decfsz  T5,F
+    bra   doT6
+    bsf   Timout,4
+    movff T5Copy, T5
+
+doT6  movf  T6
+    bz    doT7
+    decfsz  T6,F
+    bra   doT7
+    bsf   Timout,5
+    movff T6Copy, T6
+doT7
+    movf  T7
+    bz    doT8
+    decfsz  T7,F
+    bra   doT8
+    bsf   Timout,6
+    movff T7Copy, T7
+doT8
+    movf  T8
+    bz    doFlags
+    decfsz  T8,F
+    bra   doFlags
+    bsf   Timout,7
+    movff T8Copy, T8
+    
+doFlags
+    tstfsz  Timout
+    bra   off           ;turn off outputs
+    
+;   btg   PORTC,0         ;for test purposes only
+    
+    bra   lpend         ;nothing to do
+    
+off   movf  Timout,w
+    xorwf PORTC         ; set outputs
+    
+;   bsf   Timbit,0        ;set rolling bit
+;off1 movf  Timbit,W
+;   andwf Timout,W
+;   bnz   dobit         ;this timer is out
+;off2 rlncf Timbit,F
+;   bra   off1          ;try next timer
+;dobit  xorwf Timout,F        ;clear bit in Timout
+;   andwf Timset,W        ;is this timer continuous
+;   bz    donot         ;a zero is continuous
         
-        
-  
-            
-        
-  
-                
+;   xorwf Timset,F        ;ignore next time
+;   movwf Timtemp
+;   comf  Timtemp,W
+;   andwf PORTC,F         ;turn off output
+;donot  tstfsz  Timout          ;any more outputs to turn off?
+;   bra   off2  
+    
+lpend
+    movff Fsr_temp0H, FSR0H
+    movff Fsr_temp0L, FSR0L
+    movff Fsr_temp1H, FSR1H
+    movff Fsr_temp1L, FSR1L
+    movff Bsr_tempL,BSR
+    movf  W_tempL,W
+    movff St_tempL,STATUS 
+    retfie  
+                        
 
 ;*********************************************************************
 
@@ -1392,6 +1517,9 @@ short clrf  Rx0d1
     clrf  Rx0d2
     bra   go_on 
     
+setNVx  goto  setNV
+readNVx goto  readNV
+readENx goto  readEN
     
 ;********************************************************************
                 ;main packet handling is here
@@ -1438,6 +1566,12 @@ packet  movlw CMD_ON  ;only ON, OFF  events supported
     movlw 0x56      ;read number of events left
     subwf Rx0d0,W
     bz    rden
+    movlw 0x71      ;read NVs
+    subwf Rx0d0,W
+    bz    readNVx
+    movlw 0x96      ;set NV
+    subwf Rx0d0,W
+    bz    setNVx
     movlw 0xD2      ;is it set event?
     subwf Rx0d0,W
     bz    chklrn      ;do learn
@@ -1450,7 +1584,7 @@ packet  movlw CMD_ON  ;only ON, OFF  events supported
   
     movlw 0x57      ;is it read events
     subwf Rx0d0,W
-    bz    readEN
+    bz    readENx
     movlw 0x72
     subwf Rx0d0,W
     bz    readENi     ;read event by index
@@ -1590,6 +1724,17 @@ readENi call  thisNN      ;read event by index
 paraerr movlw 3       ;error not in setup mode
     goto  errmsg
 
+setNV call  thisNN
+    sublw 0
+    bnz   notNN     ;not this node
+    call  putNV
+    bra   main2
+
+readNV  call  thisNN
+    sublw 0
+    bnz   notNN     ;not this node
+    call  getNV
+    bra   main2
 
 readEN  call  thisNN
     sublw 0
@@ -1832,25 +1977,17 @@ un2   bsf   EECON1,RD
     bcf   Datmode,5
     
     bra   l_out1
-        
-
-  
-
-  
-  
-  
-    
-
-        
-    
-    
-    
     
 ;***************************************************************************
 ;   main setup routine
 ;*************************************************************************
 
-setup clrf  INTCON      ;no interrupts yet
+setup lfsr  FSR0, 0     ; clear 128 bytes of ram
+nextram clrf  POSTINC0
+    btfss FSR0L, 7
+    bra   nextram 
+    
+    clrf  INTCON      ;no interrupts yet
     clrf  ADCON0      ;turn off A/D, all digital I/O
     movlw B'00001111'
     movwf ADCON1
@@ -1915,13 +2052,21 @@ mskloop clrf  POSTINC0
     movlw B'10000100'
     movwf T0CON     ;set Timer 0 for LED flash
     
+    movlw B'10100001'   ;Timer 1 control.16 bit write, 1MHz tick
+    movwf T1CON     ;Timer 1 is for output duration
+    movlw 0xB1
+    movwf TMR1H     ;set timer hi byte
+    movlw 0xE0
+    movwf TMR1L     ;set for 20ms tick
+        
     clrf  Tx1con
     movlw B'00100011'
     movwf IPR3      ;high priority CAN RX and Tx error interrupts(for now)
     clrf  IPR1      ;all peripheral interrupts are low priority
     clrf  IPR2
     clrf  PIE2
-
+    movlw B'00000001'
+    movwf PIE1      ;enable interrupt for timer 1
 
 
 ;next segment required
@@ -2006,26 +2151,97 @@ setloop
 
 ;   Do an event.  arrives with EVs in EVtemp and EVtemp2
 
-ev_set  movff EVtemp,EVtemp1
+ev_set  movff Rx0d0, EVtemp3
+    movff EVtemp,EVtemp1
+    movff EVtemp2, OffBits
     comf  EVtemp1,W
     andwf PORTC,W     ;mask unaffected outputs
-    movwf EVtemp1 
+    movwf EVtemp1     ;unaffected outputs
     movf  EVtemp,W
     xorwf EVtemp2,F   ;change polarity if needed
-    btfss Rx0d0,0     ;on or off?
+    btfss EVtemp3,0     ;on or off?
     bra   ev_on
     movf  EVtemp,W
     xorwf EVtemp2,W
     iorwf EVtemp1,W
-    movwf PORTC
-    return      
+    movwf OpBits
+    bra   doNvs
+          
 ev_on movf  EVtemp,W
     andwf EVtemp2,W
     iorwf EVtemp1,W
-    movwf PORTC
+    movwf OpBits
+    
+doNvs
+    bcf   PIE1, 0     ; inhibit timer1 interupts
+    nop
+    clrf  OpNum
+    movlw 1
+    movwf Roll
+    lfsr  FSR0, T1
+    lfsr  FSR1, T1Copy
+    comf  OffBits,w
+    andwf EVtemp,w
+    movwf OnBits
+nxtop
+    movf  Roll,w
+    andwf EVtemp,w
+    bz    no_op     ;j if bit not affected
+    movlw LOW NVstart
+    addwf OpNum,w
+    movwf EEADR
+    call  eeread      ;get NV
+    movwf EVtemp1
+    bcf   WREG,7
+    tstfsz  WREG
+    bra   pulse
+    bra   nopulse
+pulse             ;pulse action
+    incf  WREG
+    movwf Temp
+    btfss EVtemp1,7   ;test repeat pulse flag
+    bra   onepulse    ;j if not repeat
+    btfsc EVtemp3,0   ;chk for on command
+    bra   stop_p      ;j if off event, turn off pulsing
+    movf  OpNum,w
+    movff Temp, PLUSW0  ; set up for repeat pulses
+    movff Temp, PLUSW1
+    bra   no_op   
+
+onepulse  
+    btfsc EVtemp3,0
+    bra   off_event
+    movf  Roll,w
+    andwf OffBits,w
+    bnz   nopulse
+    bra   do_on
+off_event
+    movf  Roll,w
+    andwf OffBits,w
+    bz    nopulse
+do_on 
+    movf  OpNum,w
+    movff Temp, PLUSW0
+    clrf  PLUSW1
+    bra   no_op
+    
+stop_p  comf  Roll, w
+    andwf OpBits  
+nopulse             ;normal action so no timers
+    movf  OpNum,w
+    clrf  PLUSW0
+    clrf  PLUSW1
+no_op
+    incf  OpNum
+    rlcf  Roll
+    bnc   nxtop 
+    comf  EVtemp, w
+    andwf PORTC
+    movf  OpBits,w
+    iorwf PORTC
+    bsf   PIE1,0      ; allow timer 1 interupts
+    nop
     return          
-
-
 
 ;   Send contents of Tx1 buffer via CAN TXB1
 
@@ -2713,6 +2929,62 @@ ldely1  call  dely
     
     return
 
+;**************************************************************************
+
+putNV movlw NV_NUM + 1    ;put new NV in EEPROM and the NV ram.
+    cpfslt  Rx0d3
+    return
+    movf  Rx0d3,W
+    bz    no_NV
+    decf  WREG      ;NVI starts at 1
+    addlw LOW NVstart
+    movwf EEADR
+    movf  Rx0d4,W
+  
+    call  eewrite 
+    
+no_NV return
+
+;************************************************************************
+
+getNV movlw NV_NUM + 1    ;get NV from EEPROM and send.
+    cpfslt  Rx0d3
+    bz    no_NV1
+    movf  Rx0d3,W
+    bz    no_NV1
+    decf  WREG      ;NVI starts at 1
+    addlw LOW NVstart
+    movwf EEADR
+    call  eeread
+    movwf Tx1d4     ;NV value
+getNV1  movff Rx0d3,Tx1d3   ;NV index
+getNV2  movff Rx0d1,Tx1d1
+    movff Rx0d2,Tx1d2
+    movlw 0x97      ;NV answer
+    movwf Tx1d0
+    movlw 5
+    movwf Dlc
+    call  sendTXa
+    return
+
+no_NV1  clrf  Tx1d3     ;if not valid NV
+    clrf  Tx1d4
+    bra   getNV2
+
+nv_rest movlw 8
+    movwf Count
+    movlw LOW NVstart
+    movwf EEADR
+nv_rest1 
+    movlw 0
+    call  eewrite
+    incf  EEADR
+    decfsz  Count
+    bra   nv_rest1
+    
+    return
+
+
 ;**********************************************************************
 
 ;   new enumeration scheme
@@ -2773,6 +3045,7 @@ EVstart de  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0   ;allows for 3 EVs per event
     de  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
     de  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 
+;temp NVs for testing only, set to zero for build
 NVstart de  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0   ;allows for 16 NVs if needed
     de  0,0,0,0,0,0,0,0,0,0x00    ;set to run directly.
     end
