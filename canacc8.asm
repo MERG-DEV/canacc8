@@ -1,5 +1,5 @@
 ;     TITLE   "ACC8 source for combined SLiM / FLiM node for CBUS"
-; filename CANACC8_v2j.asm    16/08/12
+; filename CANACC8_v2k.asm    14/10/13
 
 ;  SLiM / FLiM version  19/11/09
 ; this code is for 18F2480 
@@ -98,7 +98,9 @@
 ;Rev 102f   New Bootloader test
 ;Rev v2j    New version of self-enum as separate subroutine
 ;       New OpCodes for forced self enum. (0x5D) and for direct CAN_ID entry (0x75)
-;       Does a self enum on button press in FLiM  
+;       Does a self enum on button press in FLiM 
+;Rev v2k    Add WRACK after writing an NV (RH)
+;       Also changed tto use cbusdefs8f.inc
 
 ;end of comments for ACC8
 
@@ -176,7 +178,7 @@
   LIST  P=18F2480,r=hex,N=75,C=120,T=OFF
 
   include   "p18f2480.inc"
-  include   "cbuslib/constants.inc"
+  include   "cbuslib/cbusdefs.inc"
   
   ;definitions  for ACC8   Change these to suit hardware.
   
@@ -215,7 +217,7 @@ COMBI   equ 3
 
 MAN_NO      equ MANU_MERG    ;manufacturer number
 MAJOR_VER   equ 2
-MINOR_VER   equ "J"
+MINOR_VER   equ "K"
 MODULE_ID   equ MTYP_CANACC8 ; id to identify this type of module
 EVT_NUM     equ EN_NUM           ; Number of events
 EVperEVT    equ EV_NUM           ; Event variables per event
@@ -2821,6 +2823,8 @@ putNV movlw NV_NUM + 1    ;put new NV in EEPROM and the NV ram.
     movf  Rx0d4,W
   
     call  eewrite 
+    movlw 0x59    ;WRACK
+    call  nnrel
     
 no_NV return
 
