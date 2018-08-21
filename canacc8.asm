@@ -1,5 +1,5 @@
-;     TITLE   "ACC5 source for combined SLiM / FLiM node for CBUS"
-; filename ACC5_w.asm   Now incorporates Bootloader
+;     TITLE   "ACC8 source for combined SLiM / FLiM node for CBUS"
+; filename ACC8_x.asm   Now incorporates Bootloader
 
 ;  SLiM / FLiM version  19/11/09
 ; this code is for 18F2480 
@@ -74,7 +74,8 @@
 ;   send WRACK after NNCLR and EVLRN
 ;Rev v  05/06/11 Add NVs to control pulse options
 ;       and enhance ev_set to use NVs
-;Rev w  25/09/11 add WRACK to unlearn - derived from ACC8_w.asm
+;Rev w  25/09/11 add WRACK to unlearn 
+;Rev x  corrected version w so it has ACC8 ID. Changed filename.
 
 ;end of comments for ACC8
 
@@ -178,15 +179,15 @@ SCMD_OFF  equ 0x99
 EN_NUM  equ .32   ;number of allowed events
 EV_NUM  equ 2   ;number of allowed EVs per event
 NV_NUM  equ 8   ;number of allowed NVs for node (provisional)
-ACC5_ID equ 2
+ACC8_ID equ 3
 
 Modstat equ 1   ;address in EEPROM
 
 ;module parameters  change as required
 
 Para1 equ .165  ;manufacturer number
-Para2 equ  "W"  ;for now
-Para3 equ ACC5_ID
+Para2 equ  "X"  ;for now
+Para3 equ ACC8_ID
 Para4 equ   EN_NUM    ;node descriptors (temp values)
 Para5 equ   EV_NUM
 Para6 equ   NV_NUM
