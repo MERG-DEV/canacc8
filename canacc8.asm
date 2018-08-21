@@ -2,10 +2,11 @@
 
 ; Code is the same for both CANACC5 and CANACC8 except for the module ID
 
-; filename CANACC8_v2s.asm  (RH) 14/06/15 
+; filename CANACC8_v2t.asm  (RH) 27/07/15 
 ; Has CANACC8 module ID
 
-
+; v2sBeta 1 EEPROM layout mo0dified to make it compatable with earlier versions
+;     EVstart now move back to 0xF00086
 
 ; based on CANACC5_v2n. Now includes feedback events and startup options.
 ; Feedback etc only settable via FLiM 
@@ -63,9 +64,7 @@
 
 ; 24/05/15 Version 2r Beta 1. Fix bug in reval to set ENidx and EVidx correctly (RH)
 ; Now release version 2r. The version for both the CANACC5 and CANACC8 is now the same.
-; v2sBeta 1 EEPROM layout mo0dified to make it compatable with earlier versions
-;     EVstart now move back to 0xF00086
-; Released as v2s  22/06/15  MB
+; Bug fix by RH. Now released as v2t.
 
 
 ;end of comments for CANACC5 / 8
@@ -181,7 +180,7 @@ RQNN  equ 0xbc  ; response to OPC_QNN - provisional
 
 MAN_NO      equ MANU_MERG    ;manufacturer number
 MAJOR_VER   equ 2
-MINOR_VER   equ "S"
+MINOR_VER   equ "T"
 MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
 EVT_NUM     equ EN_NUM           ; Number of events
 EVperEVT    equ EV_NUM           ; Event variables per event
@@ -1991,7 +1990,7 @@ setNN btfss Datmode,2   ;in NN set mode?
 newID call  thisNN
     sublw 0
     bnz   notNN
-    movff ev3,IDcount
+    movff ev2,IDcount
 
     call  here2       ;put in as if it was enumerated
     movlw 0x52
