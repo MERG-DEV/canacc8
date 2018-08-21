@@ -2,17 +2,17 @@
 
 ; Code is the same for both CANACC5 and CANACC8 except for the module ID
 
-; filename CANACC8_v2t.asm  (RH) 27/07/15 
+; filename CANACC8_v4aBeta102.asm  20/04/17
+; 
 ; Has CANACC8 module ID
 
-; v2sBeta 1 EEPROM layout mo0dified to make it compatable with earlier versions
-;     EVstart now move back to 0xF00086
+; 
 
 ; based on CANACC5_v2n. Now includes feedback events and startup options.
 ; Feedback etc only settable via FLiM 
 
 ; Original  SLiM / FLiM version  19/11/09
-; this code is for 18F2480 
+; this code is for 18F25K80 
 ; Uses 4 MHz resonator and PLL for 16 MHz clock
 ; The setup timer is TMR3. Used during self enumeration.
 ; CAN bit rate of 125 Kbits/sec
@@ -61,11 +61,11 @@
 
 ; CANACC5 v2p has feedback and polling. This is a update on rev 2n.  (no rev O)
 ; This code is identical to CANACC8 rev v2m except for the module ID.   
-
-; 24/05/15 Version 2r Beta 1. Fix bug in reval to set ENidx and EVidx correctly (RH)
-; Now release version 2r. The version for both the CANACC5 and CANACC8 is now the same.
-; Bug fix by RH. Now released as v2t.
-
+; Now release version 2r
+;
+; v4a Beta 101  Rewrite of 2t for 18F25K80
+;   added startup delay.  Working  17/04/17 (MB)
+; v4a Beta 102 Correction for HPINT PCH.(MB)
 
 ;end of comments for CANACC5 / 8
 
@@ -137,12 +137,14 @@
 
 ; 
 ; Assembly options
-  LIST  P=18F2480,r=hex,N=75,C=120,T=OFF
+  LIST  P=18F25K80,r=hex,N=75,C=120,T=OFF
 
-  include   "p18f2480.inc"
+  include   "p18f25k80.inc"
   include   "cbuslib/cbusdefs.inc"
   
   ;definitions  for ACC8   Change these to suit hardware.
+
+#define EVBLK_SZ  .16
   
 S_PORT  equ PORTA ;setup switch  Change as needed
 S_BIT equ 2
@@ -150,6 +152,8 @@ S_BIT equ 2
 LEARN   equ 1 ;learn switch in port A
 POL   equ 5 ;pol switch in port B
 UNLEARN equ 0 ;unlearn / setup  in port A
+UNLPORT equ   PORTA
+POLPORT equ   PORTB
 
 LED_PORT equ  PORTB  ;change as needed
 LED2  equ   7 ;PB7 is the green LED on the PCB
@@ -160,15 +164,20 @@ CMD_ON    equ 0x90  ;on event
 CMD_OFF equ 0x91  ;off event
 CMD_REQ equ 0x92  ;request event
 
-SCMD_ON equ 0x98
+SCMD_ON   equ 0x98
 SCMD_OFF  equ 0x99
 SCMD_REQ  equ 0x9A
-OPC_PNN equ 0xB6
-
+OPC_PNN   equ 0xB6
 OLD_EN_NUM  equ .32   ;old number of allowed events
-EN_NUM  equ .128
-HASH_SZ equ .8
-EV_NUM  equ 3   ;number of allowed EVs per event
+
+BLK_SZ    equ EVBLK_SZ
+EN_NUM    equ .128
+EVENT_SZ  equ BLK_SZ-8
+ERASE_SZ  equ .64
+HASH_SZ   equ .32
+HASH_MASK equ HASH_SZ-1
+EVSPER_BLK  equ ERASE_SZ/BLK_SZ
+EV_NUM    equ 3   ;number of allowed EVs per event
 
 Modstat equ 1   ;address in EEPROM
 
@@ -179,15 +188,15 @@ Modstat equ 1   ;address in EEPROM
 RQNN  equ 0xbc  ; response to OPC_QNN - provisional
 
 MAN_NO      equ MANU_MERG    ;manufacturer number
-MAJOR_VER   equ 2
-MINOR_VER   equ "T"
+MAJOR_VER   equ 4
+MINOR_VER   equ "A"
 MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
 EVT_NUM     equ EN_NUM           ; Number of events
 EVperEVT    equ EV_NUM           ; Event variables per event
 NV_NUM      equ .12             ; Number of node variables
 NODEFLGS    equ PF_CONSUMER + PF_PRODUCER + PF_BOOT
-CPU_TYPE    equ P18F2480
-BETA    equ 0
+CPU_TYPE    equ P18F25K80
+BETA    equ .102
 
 
 
@@ -242,16 +251,16 @@ BETA    equ 0
 
 ;set config registers. These are common to bootloader and ACC8. 
 
-; note. there seem to be differences in the naming of the CONFIG parameters between
-; versions of the p18F2480.inf files
 
-  CONFIG  FCMEN = OFF, OSC = HSPLL, IESO = OFF
-  CONFIG  PWRT = ON,BOREN = BOHW, BORV=0
-  CONFIG  WDT=OFF
-  CONFIG  MCLRE = ON
-  CONFIG  LPT1OSC = OFF, PBADEN = OFF
-  CONFIG  DEBUG = OFF
-  CONFIG  XINST = OFF,LVP = OFF,STVREN = ON,CP0 = OFF
+
+  CONFIG  FCMEN = OFF, FOSC = HS1, IESO = OFF, PLLCFG = ON
+  CONFIG  PWRTEN = ON,BOREN = SBORDIS, BORV=0, SOSCSEL = DIG
+  CONFIG  WDTEN=OFF
+  CONFIG  MCLRE = ON, CANMX = PORTB
+  CONFIG  BBSIZ = BB1K
+
+  
+  CONFIG  XINST = OFF,STVREN = ON,CP0 = OFF
   CONFIG  CP1 = OFF, CPB = OFF, CPD = OFF,WRT0 = OFF,WRT1 = OFF, WRTB = OFF
   CONFIG  WRTC = OFF,WRTD = OFF, EBTR0 = OFF, EBTR1 = OFF, EBTRB = OFF
   
@@ -297,6 +306,10 @@ BETA    equ 0
   Fsr_temp1H 
   Fsr_temp2L
   Fsr_temp2H
+  Fsr_snd0L
+  Fsr_snd0H
+  Fsr_snd1L
+  Fsr_snd1H
   Fsr_fb0L
   Fsr_fb0H 
   Fsr_fb1L
@@ -559,6 +572,7 @@ BETA    equ 0
 ; ***************************************************************************** 
 ;_STARTUPCODE 0x00
   ORG 0x0000
+  call  ldely       ;startup delay
 ; *****************************************************************************
   bra _CANInit
   bra _StartWrite
@@ -657,7 +671,7 @@ _CANInit:
   movlw   0x1C    ; Reset the boot control bits
   movwf   _bootCtlBits 
   movlb d'15'   ; Set Bank 15
-  bcf   TRISB, CANTX  ; Set the TX pin to output 
+; bcf   TRISB, CANTX  ; Set the TX pin to output 
   movlw   CAN_RXF0SIDH  ; Set filter 0
   movwf   RXF0SIDH
   movlw   CAN_RXF0SIDL 
@@ -1148,7 +1162,7 @@ loadadr
     goto  hpint     ;high priority interrupt
     
     ORG   0810h     ;node type parameters
-myName  db  "ACC5   "
+myName  db  "ACC8   "
 
     ORG   0818h 
     goto  lpint     ;low priority interrupt
@@ -1199,7 +1213,7 @@ hpint   movwf W_tempL
     
     
 
-    movlw 0x0A      ;for relocated code
+    movlw 0x08      ;for relocated code
     movwf PCLATH
     movf  TempCANSTAT,W     ;Jump table
     andlw B'00001110'
@@ -1244,7 +1258,7 @@ errbak    bcf   RXB1CON,RXFUL
 back  bcf   RXB0CON,RXFUL ;ready for next
   
   
-back1 clrf  PIR3      ;clear all flags
+back1 clrf  PIR5      ;clear all flags
     movf  CANCON,W
     andlw B'11110001'
     iorwf TempCANCON,W
@@ -1297,7 +1311,7 @@ lpint movwf W_tempL       ;used for output timers
 
 lp0   movlw 0xE0        ;Timer 1 lo byte. (adjust if needed)
     movwf TMR1L       ;reset timer 1
-    clrf  PIR1        ;clear all timer flag
+    bcf   PIR1,TMR1IF     ;clear  timer flag
     
 lp1   clrf  Timout
     clrf  Timbit        ;rolling bit for testing which timer
@@ -1571,7 +1585,9 @@ fb_out  incf  Op_fb   ;end except for last one
 
 ; main waiting loop
 
-main  btfsc Datmode,0   ;busy?
+main  clrwdt
+    btg   PORTA,3     ;test
+    btfsc Datmode,0   ;busy?
     bra   main_OK
     btfsc COMSTAT,7   ;look for CAN input. 
     bra   getcan
@@ -2059,8 +2075,10 @@ noEV1
 readENi call  thisNN      ;read event by index
     sublw 0
     bnz   notNN
+    movff RXB0D3,ENidx
     call  enrdi
     bra   main2
+
 
 enum  call  thisNN
     sublw 0
@@ -2136,7 +2154,7 @@ learn2  call  enmatch     ;is it there already?
     bra   learn3
     btfss PORTA,UNLEARN ;if unset and not here
     bra   l_out2      ;do nothing else 
-    call  learnin     ;put EN into stack and RAM
+    call  learn     ;put EN into stack and RAM
     sublw 0
     bz    lrnend
     movlw 4
@@ -2153,7 +2171,7 @@ learn4  movlw 2
     bnz   learn5
     call  dn_teach
 
-learn5  call  learnin     ;put EN into stack and RAM
+learn5  call  learn     ;put EN into stack and RAM
     sublw 0
     bz    lrnend
 
@@ -2193,7 +2211,7 @@ dolrn movlw 2
     subwf EVidx,W
     bnz   do_lrn1
     call  dn_teach
-do_lrn1 call  learnin
+do_lrn1 call  learn
   
     bra   lrnend
     
@@ -2231,15 +2249,23 @@ noEV  movlw 6       ;invalid EV#
 ;   main setup routine
 ;*************************************************************************
 
-setup lfsr  FSR0, 0     ; clear 128 bytes of ram
+setup lfsr  FSR0, 0     ; clear 1st page of ram
 nextram clrf  POSTINC0
-    btfss FSR0L, 7
+    tstfsz  FSR0L
     bra   nextram 
+
+    movlb .15
+  
+    clrf  ANCON0      ;disable A/D
+    clrf  ANCON1
+    clrf  CM1CON      ;disable comparator
+    clrf  CM2CON
+    clrf  INTCON2     
+    bcf   INTCON2,7   ;weak pullups on
+    setf  WPUB      ;all pullups 
+    movlb 0 
     
-    clrf  INTCON      ;no interrupts yet
-    clrf  ADCON0      ;turn off A/D, all digital I/O
-    movlw B'00001111'
-    movwf ADCON1
+    
     
     ;port settings will be hardware dependent. RB2 and RB3 are for CAN.
     ;set S_PORT and S_BIT to correspond to port used for setup.
@@ -2267,6 +2293,7 @@ nextram clrf  POSTINC0
     clrf  EECON1      ;no accesses to program memory  
     clrf  Datmode
     clrf  Latcount
+    clrf  EEADRH      ;bottom page of EEPROM
 
      
     bsf   CANCON,7    ;CAN to config mode
@@ -2276,7 +2303,7 @@ nextram clrf  POSTINC0
     movf  ECANCON,W
     movwf TempECAN 
 
-    movlb .15       ;change bank
+    movlb .14       ;change bank
     clrf  BSEL0     ;8 frame FIFO
     clrf  RXB0CON
     clrf  RXB1CON
@@ -2286,13 +2313,15 @@ nextram clrf  POSTINC0
     clrf  B3CON
     clrf  B4CON
     clrf  B5CON
-    movlb 0
-    movlw B'00000011'   ;set CAN bit rate at 125000 for now
+  
+    movlw CAN_BRGCON1   ;set CAN bit rate at 125000 for now
     movwf BRGCON1
     movlw B'10011110'   ;set phase 1 etc
     movwf BRGCON2
     movlw B'00000011'   ;set phase 2 etc
     movwf BRGCON3
+    movlb 0
+
     movlw B'00100000'
     movwf CIOCON      ;CAN to high when off
     movlw B'00100100'   ;B'00100100'
@@ -2321,13 +2350,15 @@ mskloop clrf  POSTINC0
     movwf TMR1L     ;set for 20ms tick
         
     clrf  Tx1con
-    movlw B'00100011'
-    movwf IPR3      ;high priority CAN RX and Tx error interrupts(for now)
+    movlw B'00100000'
+    movwf IPR5      ;high priority CAN RX and Tx error interrupts(for now)
     clrf  IPR1      ;all peripheral interrupts are low priority
     clrf  IPR2
+    clrf  IPR3
+    clrf  IPR4
     clrf  PIE2
-    movlw B'00000001'
-    movwf PIE1      ;enable interrupt for timer 1
+    bsf   PIE1,TMR1IE   ;enable interrupt for timer 1
+          
 
 
 ;next segment required
@@ -2341,17 +2372,21 @@ mskloop clrf  POSTINC0
 
     movlw B'00100000'   ;B'00100011'  Rx0 and RX1 interrupt and Tx error
                 
-    movwf PIE3
+    movwf PIE5
   
     clrf  PIR1
     clrf  PIR2
+    
+    clrf  PIR4
 
     bcf   RXB0CON,RXFUL   ;ready for next
     bcf   COMSTAT,RXB0OVFL  ;clear overflow flags if set
     bcf   COMSTAT,RXB1OVFL
-    clrf  PIR3      ;clear all flags
-  
-    call  copyEVs     ;set up flash ram if not already done
+    clrf  PIR5      ;clear all flags
+    clrf  EEADRH
+;   call  copyEVs     ;set up flash ram if not already done
+    call  evcopy      ;initialise EVs etc to RAM
+    call  chkevdata
     clrf  Mode      ;test for setup mode
     movlw Modstat     ;get setup status
     movwf EEADR
@@ -2362,10 +2397,11 @@ mskloop clrf  POSTINC0
     bra   slimset     ;wait for setup PB
   
     
-setid bsf   Mode,1      ;flag FLiM
+setid ;call chkevdata   ;initialise EVs etc to RAM
+    bsf   Mode,1      ;flag FLiM
     call  newid_f     ;put ID into Tx1buf, TXB2 and ID number store
     
-seten_f call  evcopy      ;initialise EVs etc to RAM
+seten_f 
     movlw 0x90      ;startup event is ON
     movwf ev_opc
     movff Nv3,EVtemp    ;which outputs to move?
@@ -2392,7 +2428,7 @@ slimset bcf   Mode,1
     goto  seten
     btfss PORTA,UNLEARN
     call  initevdata      ;clear all events if unlearn is set during power up
-seten call  evcopy      ;initialise EVs etc to RAM
+seten 
     movlw B'11000000'
     movwf INTCON      ;enable interrupts
     bcf   PORTB,6
@@ -2522,7 +2558,7 @@ no_op
     andwf PORTC
     movf  OpBits,w
     iorwf PORTC
-    bsf   PIE1,0      ; allow timer 1 interupts
+    bsf   PIE1,TMR1IE     ; allow timer 1 interupts
     bsf   PIE2,TMR3IE   ;enable interrupts on timer 3
     bsf   T3CON,TMR3ON  ;start feedback timer
     return  
@@ -2603,9 +2639,14 @@ polbak  movff Fsr_fb0L,FSR0L  ;in case a poll during a flashing
 
 ;   Send contents of Tx1 buffer via CAN TXB1
 
-sendTX1 lfsr  FSR0,Tx1con
-    lfsr  FSR1,TXB1CON
-    
+sendTX1 
+    movff FSR1L,Fsr_snd1L   ;save FSRs
+    movff FSR1H,Fsr_snd1H
+    movff FSR0L,Fsr_snd0L
+    movff FSR0H,Fsr_snd0H
+
+    lfsr  FSR0,Tx1sidh
+    lfsr  FSR1,TXB1SIDH
     movlb .15       ;check for buffer access
 ldTX2 btfsc TXB1CON,TXREQ ; Tx buffer available...?
     bra   ldTX2     ;... not yet
@@ -2621,9 +2662,14 @@ ldTX1 movf  POSTINC0,W
     movlb .15       ;bank 15
 tx1test btfsc TXB1CON,TXREQ ;test if clear to send
     bra   tx1test
-    bsf   TXB1CON,TXREQ ;OK so send
+    movlw B'00001000'   ;bsf    TXB1CON,TXREQ ;OK so send
+    movwf TXB1CON
     
 tx1done movlb 0       ;bank 0
+    movff Fsr_snd1L,FSR1L   ;recover FSRs
+    movff Fsr_snd1H,FSR1H
+    movff Fsr_snd0L,FSR0L
+    movff Fsr_snd0H,FSR0H
     return          ;successful send
 
     
@@ -2735,6 +2781,7 @@ shuffin movff RXB0SIDL,IDtempl
 eeread  bcf   EECON1,EEPGD  ;read a EEPROM byte, EEADR must be set before this sub.
     bcf   EECON1,CFGS   ;returns with data in W
     bsf   EECON1,RD
+    nop
     movf  EEDATA,W
     return
 
@@ -2753,7 +2800,7 @@ eewrite movwf EEDATA      ;write to EEPROM, EEADR must be set before this sub.
     bsf   EECON1,WR
 eetest  btfsc EECON1,WR
     bra   eetest
-    bcf   PIR2,EEIF
+    bcf   PIR4,EEIF
     bcf   EECON1,WREN
     movff TempINTCON,INTCON   ;reenable interrupts
     
@@ -2878,7 +2925,7 @@ getop1  movf  Temp,F      ;is it zero?
 getop2  return
 
 
-#include "cbuslib/evhndlr.asm"
+#include "cbuslib/new_evhndlr.asm"
 
 
 ;**************************************************************************
@@ -3180,13 +3227,15 @@ clr_en
     decfsz  Count
     bra   clr_en
     bcf   PIE2,TMR3IE   ;disable interrupts for self-en
-    movlw 0x3C      ;set T3 to 1 mSec (may need more?)
+    bcf   PIR2,TMR3IF
+    movlw B'00110000'
+    movwf T3CON
+    movlw 0x3C      ;set T3 to 100 mSec (may need more?)
     movwf TMR3H
     movlw 0xAF
     movwf TMR3L
-    movlw B'10110001'
-    movwf T3CON     ;enable timer 3
-    bcf   PIR2,TMR3IF
+    bsf   T3CON,TMR3ON      ;enable timer 3
+    
     
     movlb .15
     movlw B'10111111'   ;fixed node, default ID  
@@ -3493,43 +3542,68 @@ NodeID  de  0,0     ;Node ID
 ENindex de  0,0   ;points to next available EN number (in lo byte)
           ;free space in hi byte
 
+
   ORG 0xF00006
 
-ENstart ;feedback events stored here. Room for 8 four byte events, one per output.
+;response event variables stored here. set to defaults initially (no responses)
 
-  ORG 0xF00086  ;for compatability with earlier versions
-    
-    ;event variables stored here. set to zero initially
-    
-EVstart de  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0   ;allows for 2 EVs per event
+EVstart de    0,0,0,0,0,0,0,0 ;allows for 1 EV per event (EV3) 
+  de    0,0,0,0,0,0,0,0
+  de    0,0,0,0,0,0,0,0
+  de    0,0,0,0,0,0,0,0
 
+  ORG 0xF00026
+
+FreeCh  de    0,0
   
-  ORG 0xF000C6
-    
-hashtab de  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+
+hashtab de 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    de 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+    de 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0    
+    de 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0  
+
+; number of events in each hash table entry
+
+
 hashnum de  0,0,0,0,0,0,0,0
+    de  0,0,0,0,0,0,0,0
+    de  0,0,0,0,0,0,0,0
+    de  0,0,0,0,0,0,0,0
 
-FreeCh  de  0,0
-;must keep aligmant unchanged
-spare de  0,0,0,0,0,0
-
-  
+    
 NVstart de  0,0,0,0,0,0,0,0
-    de 0x0A,0x00,0xFF,0xFF      ;4 NVs for node variables
+    de 0x0A,0x00,0xFF,0xFF      ;12 NVs for node variables
                     ;NV9 is feedback delay. In 0.5mSec intervals approx.
                     ;NV10 startup position. Bit set is OFF end. 
                     ;bit  clear is now go to last saved position
                     ;NV11 is move on startup. Bit set is move.
-                    ;NV12 not used yet
-
-
-
+                    ;NV12 not used yet  
 
 NVnow de  0x00,0            ;holds current or last positions
-                    ;default is all off
+                    ;default is all off 
+
+  
+    
+ENstart ;feedback events stored here. Room for 8 four byte events, one per output.
 
 
-    ORG 0xF000FE
+  
+    
+
+
+
+
+
+  
+
+
+
+
+
+
+
+
+    ORG 0xF003FE
     de    0,0   ;for boot load
 
     end
