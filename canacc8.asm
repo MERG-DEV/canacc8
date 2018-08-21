@@ -2,7 +2,8 @@
 
 ; Code is the same for both CANACC5 and CANACC8 except for the module ID
 
-; filename CANACC8_v2t.asm  (RH) 27/07/15 
+; filename CANACC8_v2v.asm (MB) 20/04/17
+; 
 ; Has CANACC8 module ID
 
 ; v2sBeta 1 EEPROM layout mo0dified to make it compatable with earlier versions
@@ -61,11 +62,10 @@
 
 ; CANACC5 v2p has feedback and polling. This is a update on rev 2n.  (no rev O)
 ; This code is identical to CANACC8 rev v2m except for the module ID.   
-
+; Now release version 2r
 ; 24/05/15 Version 2r Beta 1. Fix bug in reval to set ENidx and EVidx correctly (RH)
-; Now release version 2r. The version for both the CANACC5 and CANACC8 is now the same.
-; Bug fix by RH. Now released as v2t.
-
+; 26/07/15 Fix bug in code associated with set CAN_D, in newId (RH) Now v2t
+; 20/04/17 v2v is a corrected version of v2t. (MB )
 
 ;end of comments for CANACC5 / 8
 
@@ -180,7 +180,7 @@ RQNN  equ 0xbc  ; response to OPC_QNN - provisional
 
 MAN_NO      equ MANU_MERG    ;manufacturer number
 MAJOR_VER   equ 2
-MINOR_VER   equ "T"
+MINOR_VER   equ "V"
 MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
 EVT_NUM     equ EN_NUM           ; Number of events
 EVperEVT    equ EV_NUM           ; Event variables per event
@@ -297,7 +297,11 @@ BETA    equ 0
   Fsr_temp1H 
   Fsr_temp2L
   Fsr_temp2H
-  Fsr_fb0L
+  Fsr_snd1L   ;temp FSR save in sendTX1
+  Fsr_snd1H
+  Fsr_snd0L
+  Fsr_snd0H
+  Fsr_fb0L    ;temp FSR save in feedback
   Fsr_fb0H 
   Fsr_fb1L
   Fsr_fb1H 
@@ -1148,7 +1152,7 @@ loadadr
     goto  hpint     ;high priority interrupt
     
     ORG   0810h     ;node type parameters
-myName  db  "ACC5   "
+myName  db  "ACC8   "
 
     ORG   0818h 
     goto  lpint     ;low priority interrupt
@@ -1184,7 +1188,8 @@ cksum       dw  PRCKSUM     ; Checksum of parameters
 ;
 ;   high priority interrupt. Used for CAN receive and transmit error.
 
-hpint   movwf W_tempL       
+hpint 
+    movwf W_tempL       
     movff STATUS,St_tempL
     movff CANCON,TempCANCON
     movff CANSTAT,TempCANSTAT
@@ -1199,7 +1204,7 @@ hpint   movwf W_tempL
     
     
 
-    movlw 0x0A      ;for relocated code
+    movlw 0x08      ;for relocated code
     movwf PCLATH
     movf  TempCANSTAT,W     ;Jump table
     andlw B'00001110'
@@ -1571,7 +1576,9 @@ fb_out  incf  Op_fb   ;end except for last one
 
 ; main waiting loop
 
-main  btfsc Datmode,0   ;busy?
+main  clrwdt
+
+    btfsc Datmode,0   ;busy?
     bra   main_OK
     btfsc COMSTAT,7   ;look for CAN input. 
     bra   getcan
@@ -2231,9 +2238,9 @@ noEV  movlw 6       ;invalid EV#
 ;   main setup routine
 ;*************************************************************************
 
-setup lfsr  FSR0, 0     ; clear 128 bytes of ram
+setup lfsr  FSR0, 0     ; clear 1st page of ram
 nextram clrf  POSTINC0
-    btfss FSR0L, 7
+    tstfsz  FSR0L
     bra   nextram 
     
     clrf  INTCON      ;no interrupts yet
@@ -2603,9 +2610,14 @@ polbak  movff Fsr_fb0L,FSR0L  ;in case a poll during a flashing
 
 ;   Send contents of Tx1 buffer via CAN TXB1
 
-sendTX1 lfsr  FSR0,Tx1con
-    lfsr  FSR1,TXB1CON
-    
+sendTX1 
+    movff FSR1L,Fsr_snd1L   ;save FSRs
+    movff FSR1H,Fsr_snd1H
+    movff FSR0L,Fsr_snd0L
+    movff FSR0H,Fsr_snd0H
+
+    lfsr  FSR0,Tx1sidh
+    lfsr  FSR1,TXB1SIDH
     movlb .15       ;check for buffer access
 ldTX2 btfsc TXB1CON,TXREQ ; Tx buffer available...?
     bra   ldTX2     ;... not yet
@@ -2623,7 +2635,12 @@ tx1test btfsc TXB1CON,TXREQ ;test if clear to send
     bra   tx1test
     bsf   TXB1CON,TXREQ ;OK so send
     
+    
 tx1done movlb 0       ;bank 0
+    movff Fsr_snd1L,FSR1L   ;recover FSRs
+    movff Fsr_snd1H,FSR1H
+    movff Fsr_snd0L,FSR0L
+    movff Fsr_snd0H,FSR0H
     return          ;successful send
 
     
@@ -2772,8 +2789,8 @@ eetest  btfsc EECON1,WR
     
 sendTX  movff NN_temph,Tx1d1
     movff NN_templ,Tx1d2
-
-sendTXa movf  Dlc,W       ;get data length
+sendTXa 
+    movf  Dlc,W       ;get data length
     movwf Tx1dlc
     movlw B'00001111'   ;clear old priority
     andwf Tx1sidh,F
@@ -3497,7 +3514,8 @@ ENindex de  0,0   ;points to next available EN number (in lo byte)
 
 ENstart ;feedback events stored here. Room for 8 four byte events, one per output.
 
-  ORG 0xF00086  ;for compatability with earlier versions
+; EVstart set here for compatability with earlier versions
+    ORG 0xF00086
     
     ;event variables stored here. set to zero initially
     
