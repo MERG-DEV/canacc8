@@ -2,16 +2,30 @@
 
 ; Code is the same for both CANACC5 and CANACC8 except for the module ID
 
-; filename CANACC8_v2t.asm  (RH) 27/07/15 
-; Has CANACC8 module ID
+; filename CANACC5-8-2u.asm
+; Set module id by defining CANACC5 or CANACC8 as an assembler definition in project file
+; (or project configuration if using MPLABX)
+;
+; Version History:
+;
+; Date    Rev   By  Notes
+;    
+; 25-Oct-16 V2u     PNB     Release ver 2u2 - no further changes
+; 09-Aug-15 V2u2    PNB     Use different SLiM switch routine when on CANMIO to use rotary DIP switch
+; 13-Jun-15         PNB   Add additional 8 (non configurable) inputs on CANMIO expansion connector when in FLiM.
+;                           common source file built by setting module type as assembler definition
+; 27-Jul-15 V2t     RH      Bug fix for CANID allocation
+; 22-Jun-15 v2s   MB  Release version
+; 14-Jun-15 v2sBeta 1 MB/RH   EEPROM layout modified to make it compatable with earlier versions
+;       EVstart now moved back to 0xF00086
+;           V2r           The version for both the CANACC5 and CANACC8 is now the same.
+; 24-May-15 V2r1      RH    Fix bug in reval to set ENidx and EVidx correctly (RH)
+; 29-Jun-14 V2n14     RH    Now includes feedback events and startup options.  Feedback etc only settable via FLiM  
+; ...
+; 19-Nov-09           MB    Original SLiM/FLiM version
+;
 
-; v2sBeta 1 EEPROM layout mo0dified to make it compatable with earlier versions
-;     EVstart now move back to 0xF00086
 
-; based on CANACC5_v2n. Now includes feedback events and startup options.
-; Feedback etc only settable via FLiM 
-
-; Original  SLiM / FLiM version  19/11/09
 ; this code is for 18F2480 
 ; Uses 4 MHz resonator and PLL for 16 MHz clock
 ; The setup timer is TMR3. Used during self enumeration.
@@ -45,7 +59,7 @@
 ;read node parameters <0x10> Only works in setup mode. Sends string of 7 bytes as 
 ;<0xEF><para1><para2><para3><para4><para5><para6><para7>
 
-;this code assumes a three byte EV. EVI, EV2 and EV3. EV3 used for feedback 
+;this code assumes a three byte EV. EV1, EV2 and EV3. EV3 used for feedback 
 
 ;EV1 sets which outputs are active  (1 in each bit position is active)
 ;EV2 sets the polarity of each active output. A 1 bit is reverse.
@@ -62,10 +76,13 @@
 ; CANACC5 v2p has feedback and polling. This is a update on rev 2n.  (no rev O)
 ; This code is identical to CANACC8 rev v2m except for the module ID.   
 
-; 24/05/15 Version 2r Beta 1. Fix bug in reval to set ENidx and EVidx correctly (RH)
-; Now release version 2r. The version for both the CANACC5 and CANACC8 is now the same.
-; Bug fix by RH. Now released as v2t.
+; CANACC5-8-2q - PNB 8/5/15  Common source file for CANACC5 and CANACC8 - see note below
+;                When in FLiM mode, generates simple on/off long events for inputs on
+;                the CANMIO expansion connector (where FLiM switches are on CANACC5/8)
 
+; Define the assembler definition CANACC5 or CANACC8 to build for the appropriate hardware
+; Additionally, define the assembler directive CANMIO to invert the output select bits in SLiM
+; This can be done in project options or, in MPLABX, by defining two different build configurations in the same project
 
 ;end of comments for CANACC5 / 8
 
@@ -141,6 +158,7 @@
 
   include   "p18f2480.inc"
   include   "cbuslib/cbusdefs.inc"
+  include   "cbuslib/mioSLiM.inc"
   
   ;definitions  for ACC8   Change these to suit hardware.
   
@@ -163,7 +181,6 @@ CMD_REQ equ 0x92  ;request event
 SCMD_ON equ 0x98
 SCMD_OFF  equ 0x99
 SCMD_REQ  equ 0x9A
-OPC_PNN equ 0xB6
 
 OLD_EN_NUM  equ .32   ;old number of allowed events
 EN_NUM  equ .128
@@ -174,21 +191,32 @@ Modstat equ 1   ;address in EEPROM
 
 ;module types - returned in the Flags parameter
 
-
-
-RQNN  equ 0xbc  ; response to OPC_QNN - provisional
-
 MAN_NO      equ MANU_MERG    ;manufacturer number
 MAJOR_VER   equ 2
-MINOR_VER   equ "T"
-MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
+MINOR_VER   equ "U"
+BETA    equ 0            ; Release version   
 EVT_NUM     equ EN_NUM           ; Number of events
 EVperEVT    equ EV_NUM           ; Event variables per event
 NV_NUM      equ .12             ; Number of node variables
 NODEFLGS    equ PF_CONSUMER + PF_PRODUCER + PF_BOOT
 CPU_TYPE    equ P18F2480
-BETA    equ 0
 
+
+; Define for module type should be set in project properties in MPLAB or MPLABX before building
+
+            #ifdef CANACC5
+#define     MODULE_NAME "ACC5   "
+MODULE_ID   equ MTYP_CANACC5   ; id to identify this type of module
+            #endif
+
+            #ifdef CANACC8
+#define     MODULE_NAME "ACC8   "
+MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
+            #endif
+
+            #ifndef MODULE_ID
+                Set module type with a define of CANACC5 or CANACC8 in project properties 
+            #endif
 
 
 ; definitions used by bootloader
@@ -431,7 +459,15 @@ BETA    equ 0
   Nv2     ;start position
   Nv3     ;run or not
   Nv4     ;not used yet
-    
+
+    ; Variables for additional 8 inputs and CANMIO SLiM
+
+    inputs      ;Status of additional inputs
+    dbinputs    ;Status of inputs during debounce
+    rawinps     ;Raw inputs just read in
+    dbcount     ;Debounce counter
+    switches    ;Current switches value
+
   ENDC
   
   CBLOCK    0x80
@@ -1137,7 +1173,7 @@ _CANSendBoot
 
 ;************************************************************************************************************
 ;
-;   start of ACC8 program code
+;   start of ACC5/ACC8 program code
 
     ORG   0800h
 loadadr   
@@ -1148,7 +1184,7 @@ loadadr
     goto  hpint     ;high priority interrupt
     
     ORG   0810h     ;node type parameters
-myName  db  "ACC5   "
+myName  db  MODULE_NAME
 
     ORG   0818h 
     goto  lpint     ;low priority interrupt
@@ -1173,7 +1209,7 @@ nodenam     dw  myName      ; Pointer to module type name
 
 PRCKSUM     equ MAN_NO+MINOR_VER+MODULE_ID+EVT_NUM+EVperEVT+NV_NUM+MAJOR_VER+NODEFLGS+CPU_TYPE+PB_CAN+HIGH myName+LOW myName+HIGH loadadr+LOW loadadr+PRMCOUNT+CPUM_MICROCHIP+BETA
 
-
+c
 cksum       dw  PRCKSUM     ; Checksum of parameters
 
 
@@ -1182,9 +1218,11 @@ cksum       dw  PRCKSUM     ; Checksum of parameters
     ORG   0840h     ;start of program
 ; 
 ;
+        #include "cbuslib/canmio.asm" ; Subroutines for additional inputs and CANMIO SLiM
+;
 ;   high priority interrupt. Used for CAN receive and transmit error.
 
-hpint   movwf W_tempL       
+hpint movwf W_tempL       
     movff STATUS,St_tempL
     movff CANCON,TempCANCON
     movff CANSTAT,TempCANSTAT
@@ -1199,11 +1237,12 @@ hpint   movwf W_tempL
     
     
 
-    movlw 0x0A      ;for relocated code
+;   movlw 0x0A      ;for relocated code
+        movlw   high (canstab)
     movwf PCLATH
     movf  TempCANSTAT,W     ;Jump table
     andlw B'00001110'
-    addwf PCL,F     ;jump
+canstab addwf PCL,F     ;jump
     bra   back
     bra   errint      ;error interrupt
     bra   back
@@ -1370,11 +1409,12 @@ off   movf  Timout,w
 
 tmr3  bcf   PIR2,TMR3IF       ;clear flag
     bcf   PIE2,TMR3IE
-    movlw 0x09
+;   movlw 0x0A
+        movlw   HIGH (fbtab)
     movwf PCLATH
     movf  Op_fb,W         ;output  number
     rlncf WREG
-    addwf PCL           ;state table jump
+fbtab addwf PCL           ;state table jump
     bra   fb1
     bra   fb2
     bra   fb3
@@ -1383,6 +1423,18 @@ tmr3  bcf   PIR2,TMR3IF       ;clear flag
     bra   fb6
     bra   fb7
     bra   fb8
+        bra     sodxtra                 ; Jump table entries for SOD for additional CANMIO inputs
+        bra     sodxtra
+        bra     sodxtra
+        bra     sodxtra
+        bra     sodxtra
+        bra     sodxtra
+        bra     sodxtra
+        bra     sodxtra
+
+
+
+
 
 fb1   movf  Rollfb,W
     andwf EVtemp,W        ;is this output enabled?
@@ -1422,17 +1474,19 @@ fb8   rlncf Rollfb,F
     movf  Rollfb,W
     andwf EVtemp,W        ;is this output enabled?
     bnz   fb_ev8          ;yes, send feedback event for OP8
-fb8b  nop   
-    
-lpend
-    movff Fsr_temp0H, FSR0H
-    movff Fsr_temp0L, FSR0L
-    movff Fsr_temp1H, FSR1H
-    movff Fsr_temp1L, FSR1L
-    movff Bsr_tempL,BSR
-    movf  W_tempL,W
-    movff St_tempL,STATUS 
-    retfie  
+fb8b  incf    Op_fb
+
+sodxtra call    inpsod                  ; Do SOD for additional CANMIO inputs
+        bnz     fb_out                  ; Returns with zero set if last one
+        bra     lpend
+
+
+fb_out  incf  Op_fb   ;end except for last one
+    movf  Tmr3h,W
+    clrf  TMR3L   ;reload timer
+    movwf TMR3H
+    bsf   PIE2,TMR3IE ;re-enable interrupt
+        bra     lpend
 
 fb_ev1  btfss E1,7    ;any FB event?
     bra   fb1b    ;no
@@ -1550,21 +1604,20 @@ fb_ev8  btfss E8,7    ;any FB event?
 fb8_on  btfsc E8,6    ;polarity reversed?
     bra   fb8_off
     call  fbev_on   ;send fedback event
-    bra   lpend       ;no more
+    bra   fb_out
 fb8_off call  fbev_off
-    bra   lpend       
-
-fb_out  incf  Op_fb   ;end except for last one
-    movf  Tmr3h,W
-    clrf  TMR3L   ;reload timer
-    movwf TMR3H
-    bsf   PIE2,TMR3IE ;re-enable interrupt
-    bra   lpend
-
-  
+    bra   fb_out
 
 
-
+lpend
+    movff Fsr_temp0H, FSR0H
+    movff Fsr_temp0L, FSR0L
+    movff Fsr_temp1H, FSR1H
+    movff Fsr_temp1L, FSR1L
+    movff Bsr_tempL,BSR
+    movf  W_tempL,W
+    movff St_tempL,STATUS
+    retfie
                         
 
 ;*********************************************************************
@@ -1607,10 +1660,10 @@ main_OK   btfsc Mode,1      ;is it SLiM?
 
 mains             ;is SLiM
 
-    btfss PIR2,TMR3IF   ;flash timer overflow?
-    bra   nofl_s      ;no SLiM flash
-    btg   PORTB,7     ;toggle green LED
-    bcf   PIR2,TMR3IF
+;       btfss PIR2,TMR3IF   ;flash timer overflow?
+;   bra   nofl_s      ;no SLiM flash
+;   btg   PORTB,7     ;toggle green LED
+;   bcf   PIR2,TMR3IF
 nofl_s  bra   noflash       ;main1
     
 ; here if FLiM mde
@@ -1748,12 +1801,13 @@ go_FLiM bsf   Datmode,1   ;FLiM setup mode
     bcf   PORTB,7     ;green off
     bra   wait1
     
-    
 
 ; common to FLiM and SLiM   
   
   
-main1 
+main1
+        call    chkinp          ; Check for any changes on the additional CANMIO inputs
+
     btfss Datmode,0   ;any new CAN frame received?
     bra   main
     
@@ -2085,7 +2139,9 @@ go_on1  call  enmatch
     bz    do_it
     bra   main2     ;not here
 
-go_on_s btfss PORTA,LEARN
+go_on_s btfss   PORTA,MIO_LEARN ;Are we in CANMIO learn mode?
+        bra     mioSLiM         ;yes
+        btfss PORTA,LEARN
     bra   learn2      ;is in learn mode
     bra   go_on1
 
@@ -2133,10 +2189,11 @@ learn2  call  enmatch     ;is it there already?
     sublw   0
     bz    isthere
     btfsc Mode,1      ;FLiM?
-    bra   learn3
-    btfss PORTA,UNLEARN ;if unset and not here
+    bra   learn3          ;yes
+
+      btfss PORTA,UNLEARN ;if unset and not here
     bra   l_out2      ;do nothing else 
-    call  learnin     ;put EN into stack and RAM
+      call  learnin     ;put EN into stack and RAM
     sublw 0
     bz    lrnend
     movlw 4
@@ -2170,6 +2227,7 @@ lrnend  ;movlw  0x59
 isthere
     btfsc Mode,1
     bra   isthf     ;j if FLiM mode
+
     btfsc PORTA,UNLEARN ;is it here and unlearn...
     bra   dolrn
     call  unlearn     ;...goto unlearn  
@@ -2246,9 +2304,9 @@ nextram clrf  POSTINC0
     ;rest are hardware options
     
   
-    movlw B'00000111'   ;Port A  PA0 and PA1 inputs for SLiM compatibility. PA2 is setup PB
+    movlw B'00101111'   ;Port A  PA0 and PA1 inputs for SLiM compatibility. PA2 is setup PB.  RA0,1,3,5 used as inputs when in FLiM
     movwf TRISA     ;
-    movlw B'00111011'   ;RB2 = CANTX, RB3 = CANRX,  
+    movlw B'00111011'   ;RB2 = CANTX, RB3 = CANRX, RB0,1,4,5 used as inputs when in FLiM
                 ;RB6,7 for debug and ICSP and LEDs
                 ;PORTB has pullups enabled on inputs
     movwf TRISB
@@ -2258,7 +2316,6 @@ nextram clrf  POSTINC0
     movlw B'00000000'   ;Port C  set to outputs.
     movwf TRISC
     clrf  PORTC
-  
     
 ; next segment is essential.
     
@@ -2337,7 +2394,6 @@ mskloop clrf  POSTINC0
     
     clrf  INTCON2     ;
     clrf  INTCON3     ;
-    
 
     movlw B'00100000'   ;B'00100011'  Rx0 and RX1 interrupt and Tx error
                 
@@ -2387,21 +2443,28 @@ seten_f call  evcopy      ;initialise EVs etc to RAM
 slimset bcf   Mode,1
     clrf  NN_temph
     clrf  NN_templ
-    ;test for clear all events
-    btfss PORTA,LEARN   ;ignore the clear if learn is set
+
+    ;test for clear all events (CANMIO test added ver 2U PNB)
+
+        btfsc   PORTA,MIO_LEARN ;Are we in CANMIO learn mode?
+        bra     clrchk          ;no
+        movlw   MIO_SLIM_MASK
+        andwf   PORTA,w         ; Get MIO learn switch bits
+        sublw   MIOERASE        ; Erase all events?
+        bz      clrall          ; yes
+        bra     seten           ; no
+
+clrchk  btfss PORTA,LEARN   ;ignore the clear if learn is set
     goto  seten
     btfss PORTA,UNLEARN
-    call  initevdata      ;clear all events if unlearn is set during power up
+clrall  call  initevdata    ;clear all events if unlearn is set during power up
 seten call  evcopy      ;initialise EVs etc to RAM
+        call    inpset          ; Setup variables for addtional CANMIO inputs
     movlw B'11000000'
     movwf INTCON      ;enable interrupts
     bcf   PORTB,6
     bsf   PORTB,7     ;RUN LED on. Green for SLiM
     goto  main
-
-
-
-
     
 ;****************************************************************************
 ;   start of subroutines
@@ -2765,7 +2828,7 @@ eetest  btfsc EECON1,WR
 ;*********************************************************************
 ;   send a CAN frame
 ;   entry at sendTX puts the current NN in the frame - for producer events
-;   entry at sendTXa neeeds Tx1d1 and Tx1d2 setting first
+;   entry at sendTXa needs Tx1d1 and Tx1d2 setting first
 ;   Latcount is the number of CAN send retries before priority is increased
 ;   the CAN-ID is pre-loaded in the Tx1 buffer 
 ;   Dlc must be loaded by calling source to the data length value
@@ -2865,10 +2928,11 @@ getop movlw B'00010011'   ;get DIP switch setting for output
     rrncf Temp1,W
     andlw B'00000100'
     iorwf Temp,W
-    
+
+
     andlw B'00000111'   ;mask
     movwf Temp
-    movlw 1
+getop3  movlw 1               ; Entry point from CANMIO verson of getop
     movwf EVtemp
 getop1  movf  Temp,F      ;is it zero?
     bz    getop2
@@ -2879,6 +2943,7 @@ getop2  return
 
 
 #include "cbuslib/evhndlr.asm"
+
 
 
 ;**************************************************************************
@@ -3497,7 +3562,8 @@ ENindex de  0,0   ;points to next available EN number (in lo byte)
 
 ENstart ;feedback events stored here. Room for 8 four byte events, one per output.
 
-  ORG 0xF00086  ;for compatability with earlier versions
+; EVstart set here for compatability with earlier versions
+    ORG 0xF00086
     
     ;event variables stored here. set to zero initially
     
@@ -3510,7 +3576,9 @@ hashtab de  0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
 hashnum de  0,0,0,0,0,0,0,0
 
 FreeCh  de  0,0
-;must keep aligmant unchanged
+
+;must keep alignment unchanged
+
 spare de  0,0,0,0,0,0
 
   
