@@ -2,7 +2,7 @@
 
 ; Code is the same for both CANACC5 and CANACC8 except for the module ID
 
-; filename CANACC8_v2m.asm  29/06/14 (RH)
+; filename CANACC8_v2r.asm  25/05/15 
 ; Has CANACC8 module ID
 
 ; based on CANACC5_v2n. Now includes feedback events and startup options.
@@ -56,10 +56,11 @@
 ; 128 Events possible. 8 feedback events. Just ON or OFF for position for each output.
 ; Output states can be polled and there is a SoD function.
 
-; CANACC8 v2m has feedback and polling. This is a update on rev 2k.  (no rev l)
-; This code is identical to CANACC5 rev v2m except for the module ID.   
+; CANACC5 v2p has feedback and polling. This is a update on rev 2n.  (no rev O)
+; This code is identical to CANACC8 rev v2m except for the module ID.   
 
-
+; 24/05/15 Version 2r Beta 1. Fix bug in reval to set ENidx and EVidx correctly (RH)
+; Now release version 2r. The version for both the CANACC5 and CANACC8 is now the same.
 
 
 ;end of comments for CANACC5 / 8
@@ -175,7 +176,7 @@ RQNN  equ 0xbc  ; response to OPC_QNN - provisional
 
 MAN_NO      equ MANU_MERG    ;manufacturer number
 MAJOR_VER   equ 2
-MINOR_VER   equ "M"
+MINOR_VER   equ "R"
 MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
 EVT_NUM     equ EN_NUM           ; Number of events
 EVperEVT    equ EV_NUM           ; Event variables per event
@@ -1143,7 +1144,7 @@ loadadr
     goto  hpint     ;high priority interrupt
     
     ORG   0810h     ;node type parameters
-myName  db  "ACC8   "
+myName  db  "ACC5   "
 
     ORG   0818h 
     goto  lpint     ;low priority interrupt
@@ -1789,6 +1790,8 @@ evns3 goto  notNN
 reval call  thisNN        ;read event numbers
     sublw 0
     bnz   notNNx
+    movff RXB0D3, ENidx
+    movff RXB0D4, EVidx
 ;   movff Rx0d3,ENidx
 ;   movff Rx0d4,EVidx
     call  evsend
@@ -1822,6 +1825,7 @@ short clrf  ev0
 setNVx  goto  setNV
 readNVx goto  readNV
 readENx goto  readEN
+unsetx  goto  unset
 
 
     
@@ -1892,7 +1896,7 @@ packet  movlw CMD_ON      ;only ON, OFF and request events supported
     bz    chklrn1     ;do learn
     movlw 0x95      ;is it unset event
     subwf ev_opc,W      
-    bz    unset
+    bz    unsetx
     movlw 0xB2      ;read event variables
     subwf ev_opc,W
     bz    readEV
