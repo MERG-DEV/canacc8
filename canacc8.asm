@@ -1,4 +1,4 @@
-;     TITLE   "CANACC5 or CANACC8 source for combined SLiM / FLiM node for CBUS"
+    TITLE   "CANACC5 or CANACC8 source for combined SLiM / FLiM node for CBUS"
 
 ; Code is the same for both CANACC5 and CANACC8 except for the module ID
 
@@ -137,7 +137,7 @@
 
 ; 
 ; Assembly options
-  LIST  P=18F2480,r=hex,N=75,C=120,T=OFF
+  LIST  P=18F2480,r=dec,N=75,C=120,T=OFF
 
   include   "p18f2480.inc"
   include   "cbuslib/cbusdefs.inc"
@@ -165,9 +165,9 @@ SCMD_OFF  equ 0x99
 SCMD_REQ  equ 0x9A
 OPC_PNN equ 0xB6
 
-OLD_EN_NUM  equ .32   ;old number of allowed events
-EN_NUM  equ .128
-HASH_SZ equ .8
+OLD_EN_NUM  equ 32   ;old number of allowed events
+EN_NUM  equ 128
+HASH_SZ equ 8
 EV_NUM  equ 3   ;number of allowed EVs per event
 
 Modstat equ 1   ;address in EEPROM
@@ -180,11 +180,11 @@ RQNN  equ 0xbc  ; response to OPC_QNN - provisional
 
 MAN_NO      equ MANU_MERG    ;manufacturer number
 MAJOR_VER   equ 2
-MINOR_VER   equ "V"
+MINOR_VER   equ "w"
 MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
 EVT_NUM     equ EN_NUM           ; Number of events
 EVperEVT    equ EV_NUM           ; Event variables per event
-NV_NUM      equ .12             ; Number of node variables
+NV_NUM      equ 12             ; Number of node variables
 NODEFLGS    equ PF_CONSUMER + PF_PRODUCER + PF_BOOT
 CPU_TYPE    equ P18F2480
 BETA    equ 0
@@ -1223,7 +1223,7 @@ hpint
 
     
     ;error routine here. Only acts on lost arbitration  
-errint  movlb .15         ;change bank      
+errint  movlb 15         ;change bank      
     btfss TXB1CON,TXLARB
     bra   errbak        ;not lost arb.
   
@@ -1272,7 +1272,7 @@ isRTR btfsc Datmode,1   ;setup mode?
     return          ;back
     btfss Mode,1      ;FLiM?
     return
-    movlb .15
+    movlb 15
 isRTR1  btfsc TXB2CON,TXREQ 
     bra   isRTR1    
     bsf   TXB2CON,TXREQ ;send ID frame - preloaded in TXB2
@@ -1634,14 +1634,14 @@ nofl1 bcf   INTCON,TMR0IF
     bra   noflash
     decfsz  Keepcnt     ;send keep alive?
     bra   noflash
-    movlw .10
+    movlw 10
     movwf Keepcnt
     movlw 0x52
 ;   call  nnrel     ;send keep alive frame (works OK, turn off for now)
 
 noflash btfsc S_PORT,S_BIT  ;setup button?
     bra   main3
-    movlw .100
+    movlw 100
     movwf Count
     clrf  Count1
     clrf  Count2
@@ -1986,7 +1986,7 @@ setNN btfss Datmode,2   ;in NN set mode?
     call  putNN     ;put in NN
     bcf   Datmode,2
     bsf   Datmode,3
-    movlw .10
+    movlw 10
     movwf Keepcnt     ;for keep alive
     movlw 0x52
     call  nnrel     ;confirm NN set
@@ -2283,7 +2283,7 @@ nextram clrf  POSTINC0
     movf  ECANCON,W
     movwf TempECAN 
 
-    movlb .15       ;change bank
+    movlb 15       ;change bank
     clrf  BSEL0     ;8 frame FIFO
     clrf  RXB0CON
     clrf  RXB1CON
@@ -2618,7 +2618,7 @@ sendTX1
 
     lfsr  FSR0,Tx1sidh
     lfsr  FSR1,TXB1SIDH
-    movlb .15       ;check for buffer access
+    movlb 15       ;check for buffer access
 ldTX2 btfsc TXB1CON,TXREQ ; Tx buffer available...?
     bra   ldTX2     ;... not yet
     movlb 0
@@ -2630,7 +2630,7 @@ ldTX1 movf  POSTINC0,W
     bra   ldTX1
 
     
-    movlb .15       ;bank 15
+    movlb 15       ;bank 15
 tx1test btfsc TXB1CON,TXREQ ;test if clear to send
     bra   tx1test
     bsf   TXB1CON,TXREQ ;OK so send
@@ -2684,7 +2684,7 @@ newid_f movlw LOW CANid     ;put in stored ID. FLiM mode
     call  eeread
     movwf NN_templ  
     
-    movlb .15       ;put ID into TXB2 for enumeration response to RTR
+    movlb 15       ;put ID into TXB2 for enumeration response to RTR
 new_1 btfsc TXB2CON,TXREQ
     bra   new_1
     clrf  TXB2SIDH
@@ -2796,7 +2796,7 @@ sendTXa
     andwf Tx1sidh,F
     movlw B'10110000'
     iorwf Tx1sidh     ;low priority
-    movlw .10
+    movlw 10
     movwf Latcount
     call  sendTX1     ;send frame
     return      
@@ -2973,14 +2973,14 @@ para1rd movf  ev2,w
     movwf Tx1d4
     bra   addflags
 notFlags  
-    movlw .14
+    movlw 14
     cpfseq  Temp
     bra   nxtparam
     call  getId1
     movwf Tx1d4
     bra   addflags
 nxtparam
-    movlw .15
+    movlw 15
     cpfseq  Temp
     bra   paramrd
     call  getId2
@@ -3016,7 +3016,7 @@ numParams
     return
     
 pidxerr
-    movlw .10
+    movlw 10
     call  errsub
     return
     
@@ -3099,7 +3099,7 @@ errsub  movwf Tx1d3   ;main eror message send. Error no. in WREG
 ;*********************************************************
 ;   a delay routine
       
-dely  movlw .10
+dely  movlw 10
     movwf Count1
 dely2 clrf  Count
 dely1 decfsz  Count,F
@@ -3112,7 +3112,7 @@ dely1 decfsz  Count,F
 
 ;   longer delay
 
-ldely movlw .100
+ldely movlw 100
     movwf Count2
 ldely1  call  dely
     decfsz  Count2
@@ -3189,7 +3189,7 @@ self_en movff FSR1L,Fsr_tmp1Le  ;save FSR1 just in case
 ;   movlw B'11000000'
 ;   movwf INTCON      ;start interrupts if not already started
     bsf   Datmode,1   ;set to 'setup' mode
-    movlw .14
+    movlw 14
     movwf Count
     lfsr  FSR0, Enum0
 clr_en
@@ -3205,7 +3205,7 @@ clr_en
     movwf T3CON     ;enable timer 3
     bcf   PIR2,TMR3IF
     
-    movlb .15
+    movlb 15
     movlw B'10111111'   ;fixed node, default ID  
     movwf TXB1SIDH
     movlw B'11100000'
@@ -3275,7 +3275,7 @@ here  movf  Roll,W
     rlcf  Roll,F
     incf  IDcount,F
     bra   here
-here2 movlw .100        ;limit to ID
+here2 movlw 100        ;limit to ID
     cpfslt  IDcount
     bra   segful        ;segment full
     
