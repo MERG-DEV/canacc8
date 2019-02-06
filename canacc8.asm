@@ -74,9 +74,39 @@
   LIST  P=18F2480,r=dec,N=75,C=120,T=OFF
 
   include   "p18f2480.inc"
-  include   "cbuslib/cbusdefs.inc"
-  
+
+; Set CONFIG
+; NOTE.: There seem to be differences in the naming of the CONFIG parameters
+;        between versions of the p18F2480.inf files
+
+  CONFIG  FCMEN = OFF, OSC = HSPLL, IESO = OFF
+  CONFIG  PWRT = ON,BOREN = BOHW, BORV=0
+  CONFIG  WDT=OFF
+  CONFIG  MCLRE = ON
+  CONFIG  LPT1OSC = OFF, PBADEN = OFF
+  CONFIG  DEBUG = OFF
+  CONFIG  XINST = OFF,LVP = OFF,STVREN = ON,CP0 = OFF
+  CONFIG  CP1 = OFF, CPB = OFF, CPD = OFF,WRT0 = OFF,WRT1 = OFF, WRTB = OFF
+  CONFIG  WRTC = OFF,WRTD = OFF, EBTR0 = OFF, EBTR1 = OFF, EBTRB = OFF
+
+; Processor uses  4 MHz. Resonator with HSPLL to give a clock of 16MHz
+
   ;definitions  for ACC8   Change these to suit hardware.
+  
+  include   "cbuslib/cbusdefs.inc"
+
+MAN_NO      equ MANU_MERG    ; Manufacturer number
+MAJOR_VER   equ 2            ; Firmware major version (numeric)
+MINOR_VER   equ "w"          ; Firmware minor version (alpha)
+MODULE_ID   equ MTYP_CANACC8 ; Id to identify this type of module
+OLD_EVT_NUM equ 32           ; Old number of allowed events
+EVT_NUM     equ 128          ; Number of events
+EVperEVT    equ 3            ; Event variables per event
+HASH_SZ     equ 8
+NV_NUM      equ 12           ; Number of node variables
+NODEFLGS    equ PF_CONSUMER + PF_PRODUCER + PF_BOOT
+CPU_TYPE    equ P18F2480
+BETA        equ 0            ; Firmware beta version (numeric, 0 = Release)
   
 S_PORT  equ PORTA ;setup switch  Change as needed
 S_BIT equ 2
@@ -89,59 +119,11 @@ LED_PORT equ  PORTB  ;change as needed
 LED2  equ   7 ;PB7 is the green LED on the PCB
 LED1  equ   6 ;PB6 is the yellow LED on the PCB
 
-
-CMD_ON    equ 0x90  ;on event
-CMD_OFF equ 0x91  ;off event
-CMD_REQ equ 0x92  ;request event
-
-SCMD_ON equ 0x98
-SCMD_OFF  equ 0x99
-SCMD_REQ  equ 0x9A
-OPC_PNN equ 0xB6
-
-OLD_EN_NUM  equ 32   ;old number of allowed events
-EN_NUM  equ 128
-HASH_SZ equ 8
-EV_NUM  equ 3   ;number of allowed EVs per event
-
 Modstat equ 1   ;address in EEPROM
-
-;module types - returned in the Flags parameter
-
-
 
 RQNN  equ 0xbc  ; response to OPC_QNN - provisional
 
-MAN_NO      equ MANU_MERG    ;manufacturer number
-MAJOR_VER   equ 2
-MINOR_VER   equ "w"
-MODULE_ID   equ MTYP_CANACC8   ; id to identify this type of module
-EVT_NUM     equ EN_NUM           ; Number of events
-EVperEVT    equ EV_NUM           ; Event variables per event
-NV_NUM      equ 12             ; Number of node variables
-NODEFLGS    equ PF_CONSUMER + PF_PRODUCER + PF_BOOT
-CPU_TYPE    equ P18F2480
-BETA    equ 0
 
-
-
-;set config registers. These are common to bootloader and ACC8. 
-
-; note. there seem to be differences in the naming of the CONFIG parameters between
-; versions of the p18F2480.inf files
-
-  CONFIG  FCMEN = OFF, OSC = HSPLL, IESO = OFF
-  CONFIG  PWRT = ON,BOREN = BOHW, BORV=0
-  CONFIG  WDT=OFF
-  CONFIG  MCLRE = ON
-  CONFIG  LPT1OSC = OFF, PBADEN = OFF
-  CONFIG  DEBUG = OFF
-  CONFIG  XINST = OFF,LVP = OFF,STVREN = ON,CP0 = OFF
-  CONFIG  CP1 = OFF, CPB = OFF, CPD = OFF,WRT0 = OFF,WRT1 = OFF, WRTB = OFF
-  CONFIG  WRTC = OFF,WRTD = OFF, EBTR0 = OFF, EBTR1 = OFF, EBTRB = OFF
-  
-
-; processor uses  4 MHz. Resonator with HSPLL to give a clock of 16MHz
 
 ;********************************************************************************
 #define HIGH_INT_VECT 0x0808  ;HP interrupt vector redirect. Change if target is different
@@ -1078,7 +1060,7 @@ readEV  btfss Datmode,4
     movf  EVidx,w     ;check EV index
     bz    rdev1
     decf  EVidx
-    movlw EV_NUM
+    movlw EVperEVT
     cpfslt  EVidx
 rdev1 bra   noEV1
     bsf   Datmode,6
@@ -1137,22 +1119,22 @@ unsetx  goto  unset
                 ;main packet handling is here
                 ;add more commands for incoming frames as needed
     
-packet  movlw CMD_ON      ;only ON, OFF and request events supported
+packet  movlw OPC_ACON      ;only ON, OFF and request events supported
     subwf ev_opc,W  
     bz    go_on_x
-    movlw CMD_OFF
+    movlw OPC_ACOF
     subwf ev_opc,W
     bz    go_on_x
-    movlw CMD_REQ
+    movlw OPC_AREQ
     subwf ev_opc,W
     bz    go_on_x
-    movlw SCMD_ON
+    movlw OPC_ASON
     subwf ev_opc,W
     bz    short
-    movlw SCMD_OFF
+    movlw OPC_ASOF
     subwf ev_opc,W
     bz    short
-    movlw SCMD_REQ
+    movlw OPC_ASRQ
     subwf ev_opc,W
     bz    go_on_x
     
@@ -1347,7 +1329,7 @@ chklrn  btfss Datmode,4   ;is in learn mode?
     movf  EVidx,w     ;check EV index
     bz    noEV1
     decf  EVidx
-    movlw EV_NUM
+    movlw EVperEVT
     cpfslt  EVidx
     bra   noEV1
     bra   learn2
@@ -2111,7 +2093,7 @@ not_NN  retlw 1
 ;   loads ENs from EEPROM to RAM for fast access
 ;   shifts all 32 even if less are used
 
-en_ram  movlw OLD_EN_NUM
+en_ram  movlw OLD_EVT_NUM
     movwf Count     ;number of ENs allowed 
     
     bcf   STATUS,C    ;clear carry
@@ -2127,7 +2109,7 @@ enload  bsf   EECON1,RD   ;get first byte
     decfsz  Count,F
     bra   enload
     
-ev_ram  movlw OLD_EN_NUM    ;now copy original EVs to RAM
+ev_ram  movlw OLD_EVT_NUM    ;now copy original EVs to RAM
     movwf Count     ;number of ENs allowed 
     bcf   STATUS,C
     rlncf Count     ; 2 EVs per event
@@ -2147,7 +2129,7 @@ ev_load
     
 ;   clears all stored events
 
-enclear movlw OLD_EN_NUM * 6 + 2    ;number of locations in EEPROM
+enclear movlw OLD_EVT_NUM * 6 + 2    ;number of locations in EEPROM
     movwf Count
     movlw LOW ENindex
     movwf EEADR
@@ -2157,7 +2139,7 @@ enloop  movlw 0
     decfsz  Count
     bra   enloop
     ;now clear the ram
-    movlw OLD_EN_NUM * 4
+    movlw OLD_EVT_NUM * 4
     movwf Count
     lfsr  FSR0, EN1
 ramloop clrf  POSTINC0
@@ -2632,13 +2614,13 @@ copyev    ; copy event data to safe buffer
     movff RXB0D4, ev3
     movff RXB0D5, EVidx   ; only used by learn and some read cmds
     movff RXB0D6, EVdata    ; only used by learn cmd
-    movlw SCMD_ON
+    movlw OPC_ASON
     subwf RXB0D0,W
     bz    short1
-    movlw SCMD_OFF
+    movlw OPC_ASOF
     subwf RXB0D0,W
     bz    short1
-    movlw SCMD_REQ
+    movlw OPC_ASRQ
     subwf RXB0D0,W
     bz    short1
     return
