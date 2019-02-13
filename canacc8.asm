@@ -108,16 +108,20 @@ NODEFLGS    equ PF_CONSUMER + PF_PRODUCER + PF_BOOT
 CPU_TYPE    equ P18F2480
 BETA        equ 0            ; Firmware beta version (numeric, 0 = Release)
   
-S_PORT  equ PORTA ;setup switch  Change as needed
-S_BIT equ 2
+S_BIT       equ 2
+#define     S_INP   PORTA,S_BIT
 
-LEARN   equ 1 ;learn switch in port A
-POL   equ 5 ;pol switch in port B
-UNLEARN equ 0 ;unlearn / setup  in port A
+LEARN       equ 1 ;learn switch in port A
+#define     LEARN_INP  PORTB,LEARN
+POL         equ 5 ;pol switch in port B
+#define     POL_INP    PORTB,POL
+UNLEARN     equ 0 ;unlearn / setup  in port A
+#define     UNLEARN_INP  PORTA,UNLEARN
 
-LED_PORT equ  PORTB  ;change as needed
-LED2  equ   7 ;PB7 is the green LED on the PCB
-LED1  equ   6 ;PB6 is the yellow LED on the PCB
+LED2        equ   7 ;PB7 is the green LED on the PCB
+#define     LED2_OUT   PORTB,LED2
+LED1        equ   6 ;PB6 is the yellow LED on the PCB
+#define     LED1_OUT   PORTB,LED1
 
 Modstat equ 1   ;address in EEPROM
 
@@ -891,7 +895,7 @@ mains             ;is SLiM
 
     btfss PIR2,TMR3IF   ;flash timer overflow?
     bra   nofl_s      ;no SLiM flash
-    btg   PORTB,7     ;toggle green LED
+    btg   LED2_OUT     ;toggle green LED
     bcf   PIR2,TMR3IF
 nofl_s  bra   noflash       ;main1
     
@@ -902,7 +906,7 @@ mainf btfss INTCON,TMR0IF   ;is it flash?
     btfss Datmode,2
     bra   nofl1
     
-    btg   PORTB,6     ;flash yellow LED
+    btg   LED1_OUT     ;flash yellow LED
     
 nofl1 bcf   INTCON,TMR0IF
     btfss Datmode,3   ;running mode
@@ -914,7 +918,7 @@ nofl1 bcf   INTCON,TMR0IF
     movlw 0x52
 ;   call  nnrel     ;send keep alive frame (works OK, turn off for now)
 
-noflash btfsc S_PORT,S_BIT  ;setup button?
+noflash btfsc S_INP  ;setup button?
     bra   main3
     movlw 100
     movwf Count
@@ -926,11 +930,11 @@ wait  decfsz  Count2
     bra   wait2
     btfss INTCON,TMR0IF   ;is it flash?
     bra   wait2
-    btg   PORTB,6     ;flash LED
+    btg   LED1_OUT     ;flash LED
     bcf   INTCON,TMR0IF
 wait2 decfsz  Count1
     goto  wait
-    btfsc S_PORT,S_BIT
+    btfsc S_INP
     bra   main4     ;not held long enough
     decfsz  Count
     goto  wait
@@ -938,9 +942,9 @@ wait2 decfsz  Count1
     bra   go_FLiM
     clrf  Datmode     ;back to virgin
 
-    bcf   PORTB,6     ;yellow off
+    bcf   LED1_OUT     ;yellow off
     
-    bsf   PORTB,7     ;Green LED on
+    bsf   LED2_OUT     ;Green LED on
     clrf  INTCON      ;interrupts off
     movlw 1
     movwf IDcount     ;back to start
@@ -952,10 +956,10 @@ wait2 decfsz  Count1
     call  nnrel
     clrf  NN_temph
     clrf  NN_templ
-wait1 btfss S_PORT,S_BIT
+wait1 btfss S_INP
     bra   wait1     ;wait till release
     call  ldely
-    btfss S_PORT,S_BIT
+    btfss S_INP
     bra   wait1
   
     
@@ -974,8 +978,8 @@ wait1 btfss S_PORT,S_BIT
     call  eewrite       ;mode back to SLiM
     clrf  Datmode
     bcf   Mode,1
-    bcf   PORTB,6
-    bsf   PORTB,7       ;green LED on
+    bcf   LED1_OUT
+    bsf   LED2_OUT       ;green LED on
   
     movlw B'11000000'
     movwf INTCON
@@ -998,7 +1002,7 @@ main4
     btfss Datmode,2
     bra   mset2
     bcf   Datmode,2
-    bsf   PORTB,6     ;LED on
+    bsf   LED1_OUT     ;LED on
     movlw 0x52
     call  nnrel
     movlw Modstat
@@ -1023,11 +1027,11 @@ main3 btfss Datmode,1   ;setup mode ?
 
   
 ;   
-;   bsf   PORTB,7     ;on light
+;   bsf   LED2_OUT     ;on light
     bra   main1     ;continue normally
 
 go_FLiM bsf   Datmode,1   ;FLiM setup mode
-    bcf   PORTB,7     ;green off
+    bcf   LED2_OUT     ;green off
     bra   wait1
     
     
@@ -1265,8 +1269,8 @@ setNN btfss Datmode,2   ;in NN set mode?
     movwf Keepcnt     ;for keep alive
     movlw 0x52
     call  nnrel     ;confirm NN set
-    bsf   LED_PORT,LED1 ;LED ON
-    bcf   LED_PORT,LED2
+    bsf   LED1_OUT ;LED ON
+    bcf   LED2_OUT
     bra   main2
 
 newID call  thisNN
@@ -1294,7 +1298,7 @@ setlrn  call  thisNN
     sublw 0
     bnz   notNN
     bsf   Datmode,4
-    bsf   LED_PORT,LED1     ;LED on
+    bsf   LED1_OUT     ;LED on
     bra   main2
 
 notlrn  call  thisNN
@@ -1367,7 +1371,7 @@ go_on1  call  enmatch
     bz    do_it
     bra   main2     ;not here
 
-go_on_s btfss PORTA,LEARN
+go_on_s btfss LEARN_INP
     bra   learn2      ;is in learn mode
     bra   go_on1
 
@@ -1416,7 +1420,7 @@ learn2  call  enmatch     ;is it there already?
     bz    isthere
     btfsc Mode,1      ;FLiM?
     bra   learn3
-    btfss PORTA,UNLEARN ;if unset and not here
+    btfss UNLEARN_INP ;if unset and not here
     bra   l_out2      ;do nothing else 
     call  learnin     ;put EN into stack and RAM
     sublw 0
@@ -1452,7 +1456,7 @@ lrnend  ;movlw  0x59
 isthere
     btfsc Mode,1
     bra   isthf     ;j if FLiM mode
-    btfsc PORTA,UNLEARN ;is it here and unlearn...
+    btfsc UNLEARN_INP ;is it here and unlearn...
     bra   dolrn
     call  unlearn     ;...goto unlearn  
     bra   l_out1
@@ -1534,8 +1538,8 @@ nextram clrf  POSTINC0
                 ;RB6,7 for debug and ICSP and LEDs
                 ;PORTB has pullups enabled on inputs
     movwf TRISB
-    bcf   LED_PORT,LED2
-    bcf   LED_PORT,LED1
+    bcf   LED2_OUT
+    bcf   LED1_OUT
     bsf   PORTB,2     ;CAN recessive
     movlw B'00000000'   ;Port C  set to outputs.
     movwf TRISC
@@ -1660,8 +1664,8 @@ seten_f call  evcopy      ;initialise EVs etc to RAM
     call  ev_set      ;set outputs
     movlw B'11000000'
     movwf INTCON      ;enable interrupts
-    bcf   LED_PORT,LED2
-    bsf   LED_PORT,LED1     ;Yellow LED on.
+    bcf   LED2_OUT
+    bsf   LED1_OUT     ;Yellow LED on.
 
     bcf   Datmode,0
     goto  main
@@ -1670,15 +1674,15 @@ slimset bcf   Mode,1
     clrf  NN_temph
     clrf  NN_templ
     ;test for clear all events
-    btfss PORTA,LEARN   ;ignore the clear if learn is set
+    btfss LEARN_INP   ;ignore the clear if learn is set
     goto  seten
-    btfss PORTA,UNLEARN
+    btfss UNLEARN_INP
     call  initevdata      ;clear all events if unlearn is set during power up
 seten call  evcopy      ;initialise EVs etc to RAM
     movlw B'11000000'
     movwf INTCON      ;enable interrupts
-    bcf   PORTB,6
-    bsf   PORTB,7     ;RUN LED on. Green for SLiM
+    bcf   LED1_OUT
+    bsf   LED2_OUT     ;RUN LED on. Green for SLiM
     goto  main
 
 
