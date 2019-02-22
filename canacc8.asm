@@ -1103,90 +1103,115 @@ unsetx  goto  unset
                 ;main packet handling is here
                 ;add more commands for incoming frames as needed
 
-packet  movlw OPC_ACON      ;only ON, OFF and request events supported
+packet  
+    movlw OPC_ACON      ;only ON, OFF and request events supported
     subwf ev_opc,W
     bz    go_on_x
+
     movlw OPC_ACOF
     subwf ev_opc,W
     bz    go_on_x
+
     movlw OPC_AREQ
     subwf ev_opc,W
     bz    go_on_x
+
     movlw OPC_ASON
     subwf ev_opc,W
     bz    short
+
     movlw OPC_ASOF
     subwf ev_opc,W
     bz    short
+
     movlw OPC_ASRQ
     subwf ev_opc,W
     bz    go_on_x
 
-    movlw 0x5C      ;reboot
+    movlw OPC_BOOT      ;reboot
     subwf ev_opc,W
     bz    reboot
-    movlw 0x73
+
+    movlw OPC_RQNPN
     subwf ev_opc,W
     bz    para1a      ;read individual parameters
+
     btfss Mode,1      ;FLiM?
     bra   main2
-    movlw 0x42      ;set NN on 0x42
+
+    movlw OPC_SNN      ;set NN on 0x42
     subwf ev_opc,W
     bz    setNN
-    movlw 0x0d      ; QNN
+
+    movlw OPC_QNN      ; QNN
     subwf ev_opc,w
     bz    doQnn
-    movlw 0x10
+
+    movlw OPC_RQNP
     subwf ev_opc,W
     bz    params      ;read node parameters
-    movlw 0x11
+    movlw OPC_RQMN
+
     subwf ev_opc,w
     bz    name      ;read module name
 
-    movlw 0x53      ;set to learn mode on 0x53
+    movlw OPC_NNLRN      ;set to learn mode on 0x53
     subwf ev_opc,W
     bz    setlrn1
-    movlw 0x54      ;clear learn mode on 0x54
+
+    movlw OPC_NNULN      ;clear learn mode on 0x54
     subwf ev_opc,W
     bz    notlrn1
-    movlw 0x55      ;clear all events on 0x55
+
+    movlw OPC_NNCLR      ;clear all events on 0x55
     subwf ev_opc,W
     bz    clrens1
-    movlw 0x56      ;read number of events left
+
+    movlw OPC_NNEVN      ;read number of events left
     subwf ev_opc,W
     bz    rden
-    movlw 0x71      ;read NVs
+
+    movlw OPC_NVRD      ;read NVs
     subwf ev_opc,W
     bz    readNVx
-    movlw 0x96      ;set NV
+
+    movlw OPC_NVSET      ;set NV
     subwf ev_opc,W
     bz    setNVx
-    movlw 0xD2      ;is it set event?
+
+    movlw OPC_EVLRN      ;is it set event?
     subwf ev_opc,W
     bz    chklrn1     ;do learn
-    movlw 0x95      ;is it unset event
+
+    movlw OPC_EVULN      ;is it unset event
     subwf ev_opc,W
     bz    unsetx
-    movlw 0xB2      ;read event variables
+
+    movlw OPC_REQEV      ;read event variables
     subwf ev_opc,W
     bz    readEV
 
-    movlw 0x57      ;is it read events
+    movlw OPC_NERD      ;is it read events
     subwf ev_opc,W
     bz    readENx
-    movlw 0x72
+
+    movlw OPC_NENRD
     subwf ev_opc,W
     bz    rdENi_1     ;read event by index
-    movlw 0x58
+
+    movlw OPC_RQEVN
     subwf ev_opc,W
     bz    evns
-    movlw 0x9C        ;read event variables by EN#
+
+    movlw OPC_REVAL        ;read event variables by EN#
     subwf ev_opc,W
     bz    reval
-    movlw 0x5D
+
+    movlw OPC_ENUM
     subwf ev_opc,W
     bz    enum1
-    movlw 0x75      ;force new CAN_ID
+
+    movlw OPC_CANID      ;force new CAN_ID
     subwf ev_opc,W
     bz    newID1
     bra   main2
