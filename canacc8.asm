@@ -113,10 +113,12 @@ BETA        equ 0            ; Firmware beta version (numeric, 0 = Release)
 #define  LEDY_OUT     PORTB,6 ; Yellow LED
 #define  LEDG_OUT     PORTB,7 ; Green LED
 #define  POL_INP      PORTB,5
-#define  S_INP        PORTA,2 ; Setup Switch
+#define  SETUP_INP        PORTA,2 ; Setup Switch
 #define  UNLEARN_INP  PORTA,0
 
 Modstat     equ 1   ; Address in EEPROM
+
+#define  FLiM_MODE  Mode,1
 
 
 
@@ -149,7 +151,7 @@ Modstat     equ 1   ; Address in EEPROM
   Fsr_temp1H
   Fsr_temp2L
   Fsr_temp2H
-  Fsr_snd1L   ;temp FSR save in sendTX1
+  Fsr_snd1L   ;temp FSR save in TX_frame
   Fsr_snd1H
   Fsr_snd0L
   Fsr_snd0H
@@ -540,7 +542,7 @@ back1 clrf  PIR3      ;clear all flags
 
 isRTR btfsc Datmode,1   ;setup mode?
     return          ;back
-    btfss Mode,1      ;FLiM?
+    btfss FLiM_MODE      ;FLiM?
     return
     movlb 15
 isRTR1  btfsc TXB2CON,TXREQ
@@ -879,7 +881,7 @@ get_2 call  copyev      ;save buffer
 
 no_can  bcf   RXB0CON,RXFUL
 
-main_OK   btfsc Mode,1      ;is it SLiM?
+main_OK   btfsc FLiM_MODE      ;is it SLiM?
     bra   mainf     ;no
 
 mains             ;is SLiM
@@ -908,7 +910,7 @@ nofl1 bcf   INTCON,TMR0IF
     movwf Keepcnt
     movlw 0x52
 
-noflash btfsc S_INP  ;setup button?
+noflash btfsc SETUP_INP  ;setup button?
     bra   main3
     movlw 100
     movwf Count
@@ -924,11 +926,11 @@ wait  decfsz  Count2
     bcf   INTCON,TMR0IF
 wait2 decfsz  Count1
     goto  wait
-    btfsc S_INP
+    btfsc SETUP_INP
     bra   main4     ;not held long enough
     decfsz  Count
     goto  wait
-    btfss Mode,1      ;is it in FLiM?
+    btfss FLiM_MODE      ;is it in FLiM?
     bra   go_FLiM
     clrf  Datmode     ;back to virgin
 
@@ -942,14 +944,14 @@ wait2 decfsz  Count1
     movwf EEADR
     movlw   0
     call  eewrite     ;status to reset
-    movlw 0x51      ;send node release frame
+    movlw OPC_NNREL      ;send node release frame
     call  nnrel
     clrf  NN_temph
     clrf  NN_templ
-wait1 btfss S_INP
+wait1 btfss SETUP_INP
     bra   wait1     ;wait till release
     call  ldely
-    btfss S_INP
+    btfss SETUP_INP
     bra   wait1
 
 
@@ -960,14 +962,14 @@ wait1 btfss S_INP
     incf  EEADR
     movlw 0
     call  eewrite
-    btfss Mode,1
+    btfss FLiM_MODE
     bra   main5       ;FLiM setup
     movlw Modstat
     movwf EEADR
     movlw 0
     call  eewrite       ;mode back to SLiM
     clrf  Datmode
-    bcf   Mode,1
+    bcf   FLiM_MODE
     bcf   LEDY_OUT
     bsf   LEDG_OUT       ;green LED on
 
@@ -979,7 +981,7 @@ main5 movlw Modstat
     movwf EEADR
     movlw 1
     call  eewrite       ;mode to FLiM in EEPROM
-    bsf   Mode,1        ;to FLiM
+    bsf   FLiM_MODE        ;to FLiM
     call  self_en       ;self enumerate routine
     bcf   Datmode,1
     call  nnack       ;send request for NN
@@ -993,7 +995,7 @@ main4
     bra   mset2
     bcf   Datmode,2
     bsf   LEDY_OUT     ;LED on
-    movlw 0x52
+    movlw OPC_NNACK
     call  nnrel
     movlw Modstat
     movwf EEADR
@@ -1136,7 +1138,7 @@ packet
     subwf ev_opc,W
     bz    para1a      ;read individual parameters
 
-    btfss Mode,1      ;FLiM?
+    btfss FLiM_MODE      ;FLiM?
     bra   main2
 
     movlw OPC_SNN      ;set NN on 0x42
@@ -1228,7 +1230,7 @@ setlrn1 goto  setlrn
 evns  goto  evns1
     bra   main2
 
-reboot  btfss Mode,1      ;FLiM?
+reboot  btfss FLiM_MODE      ;FLiM?
     bra   reboots
     call  thisNN
     sublw 0
@@ -1246,7 +1248,7 @@ reboots
     bnz   notNN
     bra   reboot1
 
-para1a  btfss Mode, 1
+para1a  btfss FLiM_MODE
     bra   para1s
     call  thisNN      ;read parameter by index
     sublw 0
@@ -1272,7 +1274,7 @@ setNN btfss Datmode,2   ;in NN set mode?
     bsf   Datmode,3
     movlw 10
     movwf Keepcnt     ;for keep alive
-    movlw 0x52
+    movlw OPC_NNACK
     call  nnrel     ;confirm NN set
     bsf   LEDY_OUT ;LED ON
     bcf   LEDG_OUT
@@ -1284,17 +1286,17 @@ newID call  thisNN
     movff ev2,IDcount
 
     call  here2       ;put in as if it was enumerated
-    movlw 0x52
+    movlw OPC_NNACK
     call  nnrel       ;acknowledge new CAN_ID
     goto  main2
 
 sendNN  btfss Datmode,2   ;in NN set mode?
     bra   main2     ;no
-    movlw 0x50      ;send back NN
+    movlw OPC_RQNN      ;send back NN
     movwf Tx1d0
     movlw 3
     movwf Dlc
-    call  sendTX
+    call  TX_with_NN
     bra   main2
 
 rden  goto  rden1
@@ -1322,7 +1324,7 @@ clrens  call  thisNN
     call  initevdata  ;clear flash
     call  clreepr   ;clear EEPROM of EVs
     call  evcopy    ;refresh RAM (all to 00)
-    movlw 0x59
+    movlw OPC_WRACK
     call  nnrel   ;send WRACK
     bra   notln1
 
@@ -1357,7 +1359,7 @@ enum  call  thisNN
     sublw 0
     bnz   notNN1
     call  self_en
-    movlw 0x52
+    movlw OPC_NNACK
     call  nnrel     ;send confirm frame
     bcf   RXB0CON,RXFUL
     movlw B'00001000'   ;back to normal running
@@ -1368,7 +1370,7 @@ notNN1  goto  notNN
 
 
 go_on call  copyev
-    btfss Mode,1      ;FLiM?
+    btfss FLiM_MODE      ;FLiM?
     bra   go_on_s
 
 go_on1  call  enmatch
@@ -1423,7 +1425,7 @@ learn1
 learn2  call  enmatch     ;is it there already?
     sublw   0
     bz    isthere
-    btfsc Mode,1      ;FLiM?
+    btfsc FLiM_MODE      ;FLiM?
     bra   learn3
     btfss UNLEARN_INP ;if unset and not here
     bra   l_out2      ;do nothing else
@@ -1457,7 +1459,7 @@ rdbak1  movlw 5       ;no match
 lrnend  bra   l_out2
 
 isthere
-    btfsc Mode,1
+    btfsc FLiM_MODE
     bra   isthf     ;j if FLiM mode
     btfsc UNLEARN_INP ;is it here and unlearn...
     bra   dolrn
@@ -1474,7 +1476,7 @@ isthf
     movff PLUSW0,EVtemp3
     call  ev_del      ;delete EV
     call  unlearn     ;delete event from flash
-    movlw 0x59
+    movlw OPC_WRACK
     call  nnrel
     bra   l_out1
 
@@ -1500,7 +1502,7 @@ rdbak
     movff ev3,Tx1d4
     movlw 7
     movwf Dlc
-    call  sendTXa
+    call  TX_data
     bra   l_out1
 
 l_out bcf   Datmode,4
@@ -1651,11 +1653,11 @@ mskloop clrf  POSTINC0
     bra   slimset     ;wait for setup PB
 
 
-setid bsf   Mode,1      ;flag FLiM
+setid bsf   FLiM_MODE      ;flag FLiM
     call  newid_f     ;put ID into Tx1buf, TXB2 and ID number store
 
 seten_f call  evcopy      ;initialise EVs etc to RAM
-    movlw 0x90      ;startup event is ON
+    movlw OPC_ACON      ;startup event is ON
     movwf ev_opc
     movff Nv3,EVtemp    ;which outputs to move?
     movff Nv2,EVtemp2
@@ -1673,7 +1675,7 @@ seten_f call  evcopy      ;initialise EVs etc to RAM
     bcf   Datmode,0
     goto  main
 
-slimset bcf   Mode,1
+slimset bcf   FLiM_MODE
     clrf  NN_temph
     clrf  NN_templ
     ;test for clear all events
@@ -1861,26 +1863,26 @@ poll4 movf  Rollfb,W    ;get bit
     bnz   poll_on
     btfsc ev_opc,3    ;is it a short?
     bra   s_off
-    movlw 0x94      ;long off
+    movlw OPC_AROF      ;long off
     movwf Tx1d0
     bra   poll_ol     ;output a response
-s_off movlw 0x9E
+s_off movlw OPC_ARSOF
     movwf Tx1d0
     bra   poll_os   ;output a short
 poll_on btfsc ev_opc,3    ;is it a short?
     bra   s_on
-    movlw 0x93      ;long off
+    movlw OPC_ARON      ;long off
     movwf Tx1d0
     bra   poll_ol     ;output a response
-s_on  movlw 0x9D
+s_on  movlw OPC_ARSON
     movwf Tx1d0
 poll_os movlw 5
     movwf Dlc
-    call  sendTX
+    call  TX_with_NN
     bra   polbak
 poll_ol movlw 5
     movwf Dlc
-    call  sendTXa
+    call  TX_data
 polbak  movff Fsr_fb0L,FSR0L  ;in case a poll during a flashing
     movff Fsr_fb0H,FSR0H
     movff Fsr_fb1L,FSR1L
@@ -1891,7 +1893,7 @@ polbak  movff Fsr_fb0L,FSR0L  ;in case a poll during a flashing
 
 ;   Send contents of Tx1 buffer via CAN TXB1
 
-sendTX1
+TX_frame
     movff FSR1L,Fsr_snd1L   ;save FSRs
     movff FSR1H,Fsr_snd1H
     movff FSR0L,Fsr_snd0L
@@ -1984,13 +1986,13 @@ new_1 btfsc TXB2CON,TXREQ
 
 
 
-nnack movlw 0x50      ;request frame for new NN or ack if not virgin
+nnack movlw OPC_RQNN      ;request frame for new NN or ack if not virgin
 nnrel movwf Tx1d0
     movff NN_temph,Tx1d1
     movff NN_templ,Tx1d2
     movlw 3
     movwf Dlc
-    call  sendTX
+    call  TX_with_NN
     return
 
 
@@ -2062,15 +2064,15 @@ eetest  btfsc EECON1,WR
 
 ;*********************************************************************
 ;   send a CAN frame
-;   entry at sendTX puts the current NN in the frame - for producer events
-;   entry at sendTXa neeeds Tx1d1 and Tx1d2 setting first
+;   entry at TX_with_NN puts the current NN in the frame - for producer events
+;   entry at TX_data neeeds Tx1d1 and Tx1d2 setting first
 ;   Latcount is the number of CAN send retries before priority is increased
 ;   the CAN-ID is pre-loaded in the Tx1 buffer
 ;   Dlc must be loaded by calling source to the data length value
 
-sendTX  movff NN_temph,Tx1d1
+TX_with_NN  movff NN_temph,Tx1d1
     movff NN_templ,Tx1d2
-sendTXa
+TX_data
     movf  Dlc,W       ;get data length
     movwf Tx1dlc
     movlw B'00001111'   ;clear old priority
@@ -2079,7 +2081,7 @@ sendTXa
     iorwf Tx1sidh     ;low priority
     movlw 10
     movwf Latcount
-    call  sendTX1     ;send frame
+    call  TX_frame     ;send frame
     return
 
 ;**************************************************************************
@@ -2201,7 +2203,7 @@ para1 tblrd*+
     bcf   EECON1,EEPGD
     movlw 8
     movwf Dlc
-    call  sendTXa
+    call  TX_data
     return
 
 ;**************************************************************************
@@ -2226,7 +2228,7 @@ name1 tblrd*+
     bcf   EECON1,EEPGD
     movlw 8
     movwf Dlc
-    call  sendTXa
+    call  TX_data
     return
 
 
@@ -2245,7 +2247,7 @@ para1rd movf  ev2,w
     decf  Temp
     cpfslt  Temp
     bra   pidxerr
-    movlw 0x9B
+    movlw OPC_PARAN
     movwf Tx1d0
     movlw 7   ;FLAGS index in nodeprm
     cpfseq  Temp
@@ -2282,18 +2284,18 @@ addflags
     movff ev2,Tx1d3
     movlw 5
     movwf Dlc
-    call  sendTX
+    call  TX_with_NN
     return
 
 numParams
-    movlw 0x9B
+    movlw OPC_PARAN
     movwf Tx1d0
     movlw PRMCOUNT
     movwf Tx1d4
     movff ev2,Tx1d3
     movlw 5
     movwf Dlc
-    call  sendTX
+    call  TX_with_NN
     return
 
 pidxerr
@@ -2303,7 +2305,7 @@ pidxerr
 
 getflags    ; create flags byte
     movlw PF_CONSUMER
-    btfsc Mode,1
+    btfsc FLiM_MODE
     iorlw 4   ; set bit 2
     movwf Temp
     bsf   Temp,3    ;set bit 3, we are bootable
@@ -2326,7 +2328,7 @@ whoami
     movwf Tx1d5
     movlw 6
     movwf Dlc
-    call  sendTX
+    call  TX_with_NN
     return
 
 ;***********************************************************
@@ -2374,7 +2376,7 @@ errsub  movwf Tx1d3   ;main eror message send. Error no. in WREG
     movwf Tx1d0
     movlw 4
     movwf Dlc
-    call  sendTX
+    call  TX_with_NN
     return
 
 ;*********************************************************
@@ -2414,7 +2416,7 @@ putNV movlw NV_NUM + 1    ;put new NV in EEPROM and the NV ram.
     movf  ev3,W
     call  eewrite
 
-    movlw 0x59
+    movlw OPC_WRACK
     call  nnrel     ; send WRACK
 
 
@@ -2436,11 +2438,11 @@ getNV movlw NV_NUM + 1    ;get NV from EEPROM and send.
 getNV1  movff ev2,Tx1d3   ;NV index
 getNV2  movff ev0,Tx1d1
     movff ev1,Tx1d2
-    movlw 0x97      ;NV answer
+    movlw OPC_NVANS      ;NV answer
     movwf Tx1d0
     movlw 5
     movwf Dlc
-    call  sendTXa
+    call  TX_data
     return
 
 no_NV1  clrf  Tx1d3     ;if not valid NV
@@ -2707,10 +2709,10 @@ evcopy2 call  eeread
 
 ;   send feedback events
 
-fbev_on movlw 0x90    ;0n
+fbev_on movlw OPC_ACON    ;0n
     movwf Tx1d0   ;put in buffer
     bra   fbev1
-fbev_off movlw  0x91    ;0ff
+fbev_off movlw  OPC_ACOF    ;0ff
     movwf Tx1d0   ;put in buffer
 fbev1 lfsr  FSR0,Tx1d1  ;load event into buffer
     movlw LOW ENstart
@@ -2733,9 +2735,9 @@ fb_loop call  eeread
     movf  Tx1d2,F
     bnz   f_long
     bsf   Tx1d0,3   ;set for short
-    call  sendTX    ;add NN
+    call  TX_with_NN    ;add NN
     return
-f_long  call  sendTXa   ;don't change NN
+f_long  call  TX_data   ;don't change NN
     return
 
 ;**************************************************************
